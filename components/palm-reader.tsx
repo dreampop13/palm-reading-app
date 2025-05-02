@@ -309,6 +309,12 @@ export default function PalmReader() {
         }
 
         try {
+          // 스타일 초기화 (이전에 설정된 검은색 배경 제거)
+          if (videoRef.current.parentElement) {
+            videoRef.current.parentElement.style.background = "transparent";
+          }
+          videoRef.current.style.opacity = "1";
+
           // iOS & 모바일 디바이스용 최적화된 카메라 접근
           let constraints = {
             video: {
@@ -403,6 +409,15 @@ export default function PalmReader() {
             videoRef.current.setAttribute("autoplay", "true");
             videoRef.current.muted = true; // 프로그래밍 방식으로도 mute 설정
 
+            // 배경색 설정 및 z-index 조정
+            if (videoRef.current.parentElement) {
+              videoRef.current.parentElement.style.backgroundColor =
+                "transparent";
+            }
+            videoRef.current.style.backgroundColor = "transparent";
+            videoRef.current.style.opacity = "1";
+            videoRef.current.style.zIndex = "10";
+
             // 추가 디버깅 로그
             console.log("videoRef 설정 완료:", {
               width: videoRef.current.videoWidth,
@@ -425,6 +440,15 @@ export default function PalmReader() {
                 // iOS Safari에서 추가 처리
                 videoRef.current.muted = true;
 
+                // 비디오 표시 확인
+                videoRef.current.style.opacity = "1";
+                videoRef.current.style.backgroundColor = "transparent";
+
+                if (videoRef.current.parentElement) {
+                  videoRef.current.parentElement.style.backgroundColor =
+                    "transparent";
+                }
+
                 // 자동 재생 시도
                 const playPromise = videoRef.current.play();
 
@@ -432,6 +456,12 @@ export default function PalmReader() {
                   playPromise
                     .then(() => {
                       console.log("비디오 재생 성공, 스트림 활성화 설정");
+
+                      // 비디오 표시 확인
+                      if (videoRef.current) {
+                        videoRef.current.style.opacity = "1";
+                      }
+
                       setIsStreamActive(true);
                       setAnalysisResult(null);
                       // 간소화된 화면 표시 함수 사용
@@ -822,7 +852,11 @@ export default function PalmReader() {
   return (
     <div className="flex flex-col w-full min-h-screen">
       <div className="flex-grow">
-        <div className="relative w-full aspect-[3/4] bg-black">
+        <div
+          className={`relative w-full aspect-[3/4] ${
+            selectedMode === "camera" ? "bg-transparent" : "bg-black"
+          }`}
+        >
           {!isCameraSupported && selectedMode === "camera" ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center">
               <AlertCircle className="h-10 w-10 text-red-500 mb-2" />
@@ -914,6 +948,7 @@ export default function PalmReader() {
             <>
               <div
                 className="absolute inset-0 w-full h-full"
+                style={{ backgroundColor: "transparent" }}
                 onClick={() => {
                   if (!isStreamActive && !isAnalyzing) {
                     console.log("비디오 영역 탭 - 카메라 재시작 시도");
@@ -923,42 +958,20 @@ export default function PalmReader() {
               >
                 <video
                   ref={videoRef}
-                  className="absolute inset-0 w-full h-full object-cover"
+                  className="absolute inset-0 w-full h-full object-cover z-10"
                   playsInline
                   muted
                   autoPlay
+                  style={{
+                    backgroundColor: "transparent",
+                    opacity: 1,
+                  }}
                 />
                 <canvas
                   ref={canvasRef}
-                  className="absolute inset-0 w-full h-full object-cover"
+                  className="absolute inset-0 w-full h-full object-cover z-20"
                 />
               </div>
-
-              {selectedMode === "camera" &&
-                !isStreamActive &&
-                !isAnalyzing &&
-                !analysisResult && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/70">
-                    <div className="text-white text-center p-6">
-                      <AlertCircle className="h-10 w-10 mx-auto mb-3" />
-                      <h3 className="text-lg font-medium mb-2">
-                        카메라 활성화 중...
-                      </h3>
-                      <p className="mb-4 text-sm opacity-80">
-                        카메라가 활성화되지 않으면 화면을 탭하거나 카메라 권한을
-                        확인해주세요
-                      </p>
-                      <Button
-                        onClick={startCamera}
-                        variant="outline"
-                        className="border-white/30 text-white hover:bg-white/20"
-                      >
-                        <RefreshCw className="h-4 w-4 mr-2" />
-                        카메라 다시 시도
-                      </Button>
-                    </div>
-                  </div>
-                )}
 
               <div className="absolute top-4 left-4">
                 <Button
