@@ -288,6 +288,7 @@ export default function PalmReader() {
 
       // 브라우저 호환성을 위한 getUserMedia 함수 가져오기
       const userMediaFunc = getMediaPolyfill();
+      console.log("getUserMedia 함수 상태:", userMediaFunc ? "정상" : "없음");
 
       // getUserMedia 함수가 존재하지 않으면 오류
       if (!userMediaFunc) {
@@ -431,7 +432,7 @@ export default function PalmReader() {
                 if (playPromise !== undefined) {
                   playPromise
                     .then(() => {
-                      console.log("비디오 재생 성공");
+                      console.log("비디오 재생 성공, 스트림 활성화 설정");
                       setIsStreamActive(true);
                       setAnalysisResult(null);
                       // 간소화된 화면 표시 함수 사용
@@ -799,6 +800,17 @@ export default function PalmReader() {
     };
   }, []);
 
+  // Add a debug effect for camera mode
+  useEffect(() => {
+    if (selectedMode === "camera") {
+      console.log("카메라 모드 상태:", {
+        isStreamActive,
+        isAnalyzing,
+        hasAnalysisResult: !!analysisResult,
+      });
+    }
+  }, [selectedMode, isStreamActive, isAnalyzing, analysisResult]);
+
   return (
     <div className="flex flex-col w-full min-h-screen">
       <div className="flex-grow">
@@ -873,6 +885,7 @@ export default function PalmReader() {
               <div className="w-full max-w-md">
                 <Button
                   onClick={() => {
+                    console.log("카메라 버튼 클릭됨");
                     setSelectedMode("camera");
                     startCamera();
                   }}
@@ -891,17 +904,54 @@ export default function PalmReader() {
           ) : selectedMode === "camera" ? (
             // 카메라 모드
             <>
-              <video
-                ref={videoRef}
-                className="absolute inset-0 w-full h-full object-cover"
-                playsInline
-                muted
-                autoPlay
-              />
-              <canvas
-                ref={canvasRef}
-                className="absolute inset-0 w-full h-full object-cover"
-              />
+              <div
+                className="absolute inset-0 w-full h-full"
+                onClick={() => {
+                  if (!isStreamActive && !isAnalyzing) {
+                    console.log("비디오 영역 탭 - 카메라 재시작 시도");
+                    startCamera();
+                  }
+                }}
+              >
+                <video
+                  ref={videoRef}
+                  className="absolute inset-0 w-full h-full object-cover"
+                  playsInline
+                  muted
+                  autoPlay
+                />
+                <canvas
+                  ref={canvasRef}
+                  className="absolute inset-0 w-full h-full object-cover"
+                />
+              </div>
+
+              {selectedMode === "camera" &&
+                !isStreamActive &&
+                !isAnalyzing &&
+                !analysisResult && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/70">
+                    <div className="text-white text-center p-6">
+                      <AlertCircle className="h-10 w-10 mx-auto mb-3" />
+                      <h3 className="text-lg font-medium mb-2">
+                        카메라 활성화 중...
+                      </h3>
+                      <p className="mb-4 text-sm opacity-80">
+                        카메라가 활성화되지 않으면 화면을 탭하거나 카메라 권한을
+                        확인해주세요
+                      </p>
+                      <Button
+                        onClick={startCamera}
+                        variant="outline"
+                        className="border-white/30 text-white hover:bg-white/20"
+                      >
+                        <RefreshCw className="h-4 w-4 mr-2" />
+                        카메라 다시 시도
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
               <div className="absolute top-4 left-4">
                 <Button
                   onClick={backToModeSelection}
@@ -915,10 +965,16 @@ export default function PalmReader() {
               </div>
 
               {/* 촬영 버튼 */}
-              {isStreamActive && !isAnalyzing && !analysisResult && (
+              {(isStreamActive ||
+                (selectedMode === "camera" &&
+                  !isAnalyzing &&
+                  !analysisResult)) && (
                 <div className="absolute bottom-4 left-0 right-0 flex justify-center">
                   <Button
-                    onClick={analyzePalm}
+                    onClick={() => {
+                      console.log("촬영 버튼 클릭됨");
+                      analyzePalm();
+                    }}
                     size="lg"
                     className="bg-white text-black hover:bg-gray-100 rounded-full w-16 h-16 shadow-lg"
                   >
