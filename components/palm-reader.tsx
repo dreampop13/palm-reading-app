@@ -317,24 +317,85 @@ export default function PalmReader() {
           return;
         }
 
-        // TensorFlow.js 초기화
-        await tf.ready();
-        console.log("TensorFlow.js 초기화 완료");
+        // TensorFlow.js 초기화 - Vercel 배포에서 로딩 문제 해결을 위한 백오프 재시도 로직 추가
+        let tfReady = false;
+        let retryCount = 0;
+        const maxRetries = 3;
 
-        // 손 인식 모델 로드
+        while (!tfReady && retryCount < maxRetries) {
+          try {
+            console.log(
+              `TensorFlow.js 초기화 시도 ${retryCount + 1}/${maxRetries}`
+            );
+            await tf.ready();
+
+            // 모델 캐시 정리 시도
+            try {
+              console.log("TensorFlow.js 엔진 상태 확인");
+              tf.engine().startScope(); // 새 스코프 시작
+            } catch (e) {
+              console.warn("TensorFlow.js 엔진 스코프 시작 오류:", e);
+            }
+
+            tfReady = true;
+            console.log("TensorFlow.js 초기화 완료");
+          } catch (err) {
+            console.error(
+              `TensorFlow.js 초기화 실패 (시도 ${retryCount + 1}):`,
+              err
+            );
+            retryCount++;
+            // 지수 백오프 (500ms, 1000ms, 2000ms)
+            await new Promise((resolve) =>
+              setTimeout(resolve, 500 * Math.pow(2, retryCount - 1))
+            );
+          }
+        }
+
+        if (!tfReady) {
+          throw new Error("TensorFlow.js 초기화 실패");
+        }
+
+        // 손 인식 모델 로드 - 백오프 재시도 로직 추가
         const model = handPoseDetection.SupportedModels.MediaPipeHands;
         const detectorConfig = {
           runtime: "tfjs",
-          modelType: "full",
+          modelType: "lite", // 'full' 대신 'lite' 사용하여 모델 크기 감소
           maxHands: 1,
+          solutionPath: "https://cdn.jsdelivr.net/npm/@mediapipe/hands", // CDN 경로 명시적 지정
         } as handPoseDetection.MediaPipeHandsTfjsModelConfig;
 
         console.log("손 인식 모델 로드 중...");
-        const handDetector = await handPoseDetection.createDetector(
-          model,
-          detectorConfig
-        );
-        console.log("손 인식 모델 로드 완료");
+
+        let handDetector = null;
+        retryCount = 0;
+
+        while (!handDetector && retryCount < maxRetries) {
+          try {
+            console.log(
+              `손 인식 모델 로드 시도 ${retryCount + 1}/${maxRetries}`
+            );
+            handDetector = await handPoseDetection.createDetector(
+              model,
+              detectorConfig
+            );
+            console.log("손 인식 모델 로드 완료");
+          } catch (err) {
+            console.error(
+              `손 인식 모델 로드 실패 (시도 ${retryCount + 1}):`,
+              err
+            );
+            retryCount++;
+            // 지수 백오프
+            await new Promise((resolve) =>
+              setTimeout(resolve, 1000 * Math.pow(2, retryCount - 1))
+            );
+          }
+        }
+
+        if (!handDetector) {
+          throw new Error("손 인식 모델 로드 실패");
+        }
 
         setDetector(handDetector);
         setIsModelLoading(false);
@@ -343,7 +404,13 @@ export default function PalmReader() {
         startCamera();
       } catch (error) {
         console.error("모델 로드 실패:", error);
-        toast.error("손 인식 모델을 로드하는데 실패했습니다.");
+        toast.error(
+          "손 인식 모델을 로드하는데 실패했습니다. 페이지를 새로고침 해보세요."
+        );
+        setErrorMessage(
+          "모델 로드에 실패했습니다. 현재 브라우저가 TensorFlow.js를 지원하지 않거나 네트워크 연결 문제가 있을 수 있습니다. 페이지를 새로고침하거나 다른 브라우저를 사용해보세요."
+        );
+        setIsCameraSupported(false);
         setIsModelLoading(false);
       }
     };
@@ -359,6 +426,15 @@ export default function PalmReader() {
         const tracks = stream.getTracks();
         tracks.forEach((track) => track.stop());
         setIsStreamActive(false);
+      }
+
+      // TensorFlow.js 리소스 정리
+      try {
+        console.log("TensorFlow.js 리소스 정리");
+        tf.engine().endScope();
+        tf.engine().disposeVariables();
+      } catch (err) {
+        console.error("TensorFlow.js 리소스 정리 중 오류:", err);
       }
     };
   }, [startCamera]); // startCamera 의존성 추가
@@ -408,6 +484,9 @@ export default function PalmReader() {
           <div className="absolute inset-0 flex flex-col items-center justify-center">
             <Skeleton className="h-12 w-12 rounded-full" />
             <p className="text-white mt-4 text-sm">AI 모델 로딩 중...</p>
+            <p className="text-white/70 text-xs mt-2">
+              처음 로딩에는 시간이 소요될 수 있습니다
+            </p>
           </div>
         ) : (
           <>

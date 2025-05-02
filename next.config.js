@@ -39,6 +39,25 @@ const nextConfig = {
             key: "Referrer-Policy",
             value: "origin-when-cross-origin",
           },
+          // CORS 헤더 추가
+          {
+            key: "Access-Control-Allow-Origin",
+            value: "*",
+          },
+          {
+            key: "Access-Control-Allow-Methods",
+            value: "GET, OPTIONS",
+          },
+        ],
+      },
+      // TensorFlow.js 모델 파일에 대한 추가 헤더
+      {
+        source: "/(.*).bin",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=31536000, immutable",
+          },
         ],
       },
     ];
@@ -53,6 +72,19 @@ const nextConfig = {
       "@tensorflow/tfjs-node": "commonjs @tensorflow/tfjs-node",
     });
 
+    // TensorFlow.js 및 미디어 관련 최적화
+    config.module.rules.push({
+      test: /\.wasm$/,
+      type: "asset/resource",
+    });
+
+    // SharedArrayBuffer 지원을 위한 Worker 설정
+    config.experiments = {
+      ...config.experiments,
+      topLevelAwait: true,
+      asyncWebAssembly: true,
+    };
+
     return config;
   },
 
@@ -62,6 +94,11 @@ const nextConfig = {
     "http://192.168.219.163:3000",
     "http://192.168.219.163:3001",
   ],
+
+  // 이미지 및 CDN 접근 허용
+  images: {
+    domains: ["cdn.jsdelivr.net"],
+  },
 };
 
 module.exports = nextConfig;
