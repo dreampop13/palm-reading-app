@@ -873,9 +873,24 @@ export default function PalmReader() {
         isStreamActive,
         isAnalyzing,
         hasAnalysisResult: !!analysisResult,
+        buttonVisible: !isAnalyzing && !analysisResult,
       });
     }
   }, [selectedMode, isStreamActive, isAnalyzing, analysisResult]);
+
+  // 모드 변경 시 상태 업데이트 효과
+  useEffect(() => {
+    if (selectedMode === "camera") {
+      // 카메라 모드로 전환 시 스트림 상태 확인
+      if (videoRef.current && videoRef.current.srcObject) {
+        // 비디오 스트림이 있으면 isStreamActive 상태를 true로 설정
+        setIsStreamActive(true);
+      } else {
+        // 그렇지 않으면 카메라 시작
+        startCamera();
+      }
+    }
+  }, [selectedMode, startCamera]);
 
   return (
     <div className="flex flex-col w-full min-h-screen">
@@ -956,11 +971,8 @@ export default function PalmReader() {
                 <Button
                   onClick={() => {
                     console.log("카메라 버튼 클릭됨");
+                    // 카메라 모드로 상태 변경만 하고 useEffect에서 처리
                     setSelectedMode("camera");
-                    // 카메라 권한 즉시 요청
-                    setTimeout(() => {
-                      startCamera();
-                    }, 100); // 약간의 지연을 두어 UI 업데이트 후 권한 요청
                   }}
                   size="lg"
                   className="h-32 flex flex-col gap-2 w-full"
@@ -1017,10 +1029,7 @@ export default function PalmReader() {
               </div>
 
               {/* 촬영 버튼 */}
-              {(isStreamActive ||
-                (selectedMode === "camera" &&
-                  !isAnalyzing &&
-                  !analysisResult)) && (
+              {selectedMode === "camera" && !isAnalyzing && !analysisResult && (
                 <div className="absolute bottom-4 left-0 right-0 flex justify-center">
                   <Button
                     onClick={() => {
