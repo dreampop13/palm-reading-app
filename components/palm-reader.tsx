@@ -297,6 +297,8 @@ export default function PalmReader() {
 
   // 모델 초기화
   useEffect(() => {
+    let loadingTimeoutId: NodeJS.Timeout;
+
     const checkMediaDevicesSupport = () => {
       const userMediaFunc = getMediaPolyfill();
       if (!userMediaFunc) {
@@ -311,6 +313,78 @@ export default function PalmReader() {
       return true;
     };
 
+    // 로딩이 오래 걸릴 경우 대체 방안 제공
+    const setupLoadingTimeout = () => {
+      // 10초 후에도 로딩이 완료되지 않으면 사용자에게 알림
+      loadingTimeoutId = setTimeout(() => {
+        if (isModelLoading && loadingProgress <= 70) {
+          console.log("모델 로딩이 오래 걸리고 있습니다. 대체 로직 시도...");
+
+          // 진행률 표시 업데이트
+          setLoadingProgress(75);
+          toast.info(
+            "모델 로딩에 시간이 걸리고 있습니다. 대체 모델로 전환합니다."
+          );
+
+          // 더 간단한 모델로 재시도
+          tryAlternativeModel();
+        }
+      }, 10000);
+    };
+
+    // 대체 모델 사용
+    const tryAlternativeModel = async () => {
+      try {
+        console.log("대체 모델 로딩 시도...");
+
+        // 기존 진행 중인 모델 로딩 정리
+        try {
+          tf.engine().endScope();
+          tf.engine().disposeVariables();
+        } catch (e) {
+          console.warn("TensorFlow.js 엔진 정리 오류:", e);
+        }
+
+        // 더 가벼운 대체 모델 설정
+        const model = handPoseDetection.SupportedModels.MediaPipeHands;
+        const simpleConfig = {
+          runtime: "tfjs",
+          modelType: "lite",
+          maxHands: 1,
+          // 더 가볍고 간단한 검출 모델만 사용
+          detectorModelUrl:
+            "https://tfhub.dev/mediapipe/tfjs-model/handpose_3d/detector/lite/1",
+        } as handPoseDetection.MediaPipeHandsTfjsModelConfig;
+
+        setLoadingProgress(80);
+
+        // 대체 모델 로드 시도
+        const handDetector = await handPoseDetection.createDetector(
+          model,
+          simpleConfig
+        );
+
+        if (handDetector) {
+          console.log("대체 모델 로드 성공");
+          setLoadingProgress(95);
+          setDetector(handDetector);
+          setIsModelLoading(false);
+          setLoadingProgress(100);
+          startCamera();
+        } else {
+          throw new Error("대체 모델 로드 실패");
+        }
+      } catch (error) {
+        console.error("대체 모델 로드 실패:", error);
+        setErrorMessage(
+          "모델 로드에 실패했습니다. 브라우저를 새로고침하거나 다른 브라우저를 사용해보세요."
+        );
+        setLoadingProgress(0);
+        setIsCameraSupported(false);
+        setIsModelLoading(false);
+      }
+    };
+
     const loadModel = async () => {
       try {
         setIsModelLoading(true);
@@ -322,6 +396,9 @@ export default function PalmReader() {
         }
 
         setLoadingProgress(10);
+
+        // 로딩 타임아웃 설정
+        setupLoadingTimeout();
 
         // TensorFlow.js 초기화 - Vercel 배포에서 로딩 문제 해결을 위한 백오프 재시도 로직 추가
         let tfReady = false;
@@ -374,8 +451,7 @@ export default function PalmReader() {
           solutionPath: "https://cdn.jsdelivr.net/npm/@mediapipe/hands", // CDN 경로 명시적 지정
           detectorModelUrl:
             "https://tfhub.dev/mediapipe/tfjs-model/handpose_3d/detector/lite/1", // 명시적으로 더 가벼운 detector 모델 지정
-          landmarkModelUrl:
-            "https://tfhub.dev/mediapipe/tfjs-model/handpose_3d/landmark/lite/1", // 명시적으로 더 가벼운 landmark 모델 지정
+          // landmarkModelUrl 제거하여 불필요한 모델 로딩 방지
         } as handPoseDetection.MediaPipeHandsTfjsModelConfig;
 
         console.log("손 인식 모델 로드 중...");
@@ -393,10 +469,20 @@ export default function PalmReader() {
               50 + Math.floor(((retryCount + 1) * 40) / maxRetries)
             );
 
-            handDetector = await handPoseDetection.createDetector(
+            // 모델 로드 타임아웃 설정 (각 시도마다 8초)
+            const modelLoadPromise = handPoseDetection.createDetector(
               model,
               detectorConfig
             );
+            const timeoutPromise = new Promise((_, reject) => {
+              setTimeout(() => reject(new Error("모델 로드 시간 초과")), 8000);
+            });
+
+            // 타임아웃과 모델 로드 중 먼저 완료되는 것 사용
+            handDetector = (await Promise.race([
+              modelLoadPromise,
+              timeoutPromise,
+            ])) as handPoseDetection.HandDetector;
             console.log("손 인식 모델 로드 완료");
           } catch (err) {
             console.error(
@@ -424,14 +510,9 @@ export default function PalmReader() {
         startCamera();
       } catch (error) {
         console.error("모델 로드 실패:", error);
-        toast.error(
-          "손 인식 모델을 로드하는데 실패했습니다. 페이지를 새로고침 해보세요."
-        );
-        setErrorMessage(
-          "모델 로드에 실패했습니다. 현재 브라우저가 TensorFlow.js를 지원하지 않거나 네트워크 연결 문제가 있을 수 있습니다. 페이지를 새로고침하거나 다른 브라우저를 사용해보세요."
-        );
-        setIsCameraSupported(false);
-        setIsModelLoading(false);
+        // 일반적인 모델 로드 실패 시 대체 모델 시도
+        console.log("기본 모델 로드 실패, 대체 모델 시도...");
+        tryAlternativeModel();
       }
     };
 
@@ -439,6 +520,11 @@ export default function PalmReader() {
 
     // 컴포넌트 언마운트 시 정리
     return () => {
+      // 타임아웃 정리
+      if (loadingTimeoutId) {
+        clearTimeout(loadingTimeoutId);
+      }
+
       // 언마운트 시 현재 비디오 스트림 저장
       const currentVideo = videoRef.current;
       if (currentVideo && currentVideo.srcObject) {
@@ -457,7 +543,7 @@ export default function PalmReader() {
         console.error("TensorFlow.js 리소스 정리 중 오류:", err);
       }
     };
-  }, [startCamera]); // startCamera 의존성 추가
+  }, [startCamera, isModelLoading, loadingProgress]); // 의존성 추가
 
   // 다시 시작
   const handleReset = useCallback(() => {
