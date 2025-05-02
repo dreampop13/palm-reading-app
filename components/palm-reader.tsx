@@ -309,24 +309,99 @@ export default function PalmReader() {
         }
 
         try {
-          // 환경에 맞는 제약 조건 가져오기
-          const constraints = getCameraConstraints();
-          console.log("카메라 요청 설정:", JSON.stringify(constraints));
+          // iOS & 모바일 디바이스용 최적화된 카메라 접근
+          let constraints = {
+            video: {
+              facingMode: "user", // 전면 카메라 우선
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
+            audio: false,
+          };
+
+          // 모바일 디바이스 감지
+          const isMobile = /iPhone|iPad|iPod|Android/i.test(
+            navigator.userAgent
+          );
+          console.log("장치 정보:", {
+            isMobile,
+            userAgent: navigator.userAgent,
+            isSecureContext: window.isSecureContext,
+          });
+
+          if (!window.isSecureContext) {
+            console.warn(
+              "보안 컨텍스트(HTTPS)가 아닙니다. 카메라가 작동하지 않을 수 있습니다."
+            );
+            toast.warning(
+              "보안 연결(HTTPS)이 아니면 카메라가 작동하지 않을 수 있습니다."
+            );
+          }
 
           // 사용자에게 카메라 접근 시도 중임을 알림
           toast.info("카메라 접근 권한을 요청 중입니다...");
 
-          // 호환성을 고려한 getUserMedia 호출
-          const stream = await userMediaFunc(constraints);
-          console.log("카메라 스트림 획득 성공");
+          // 첫 번째 시도: 기본 설정으로 시도
+          let stream;
+          try {
+            console.log("카메라 요청 설정 (1차):", JSON.stringify(constraints));
+            stream = await userMediaFunc(constraints);
+            console.log("카메라 스트림 획득 성공 (1차)");
+          } catch (initialError) {
+            console.warn("첫 카메라 접근 실패, 대체 방법 시도:", initialError);
+
+            // 두 번째 시도: 후면 카메라로 시도
+            try {
+              constraints = {
+                video: {
+                  facingMode: "environment", // 후면 카메라로 시도
+                  width: { ideal: 1280 },
+                  height: { ideal: 720 },
+                },
+                audio: false,
+              };
+              console.log(
+                "카메라 요청 설정 (2차-후면):",
+                JSON.stringify(constraints)
+              );
+              stream = await userMediaFunc(constraints);
+              console.log("후면 카메라 스트림 획득 성공 (2차)");
+            } catch (secondError) {
+              console.warn(
+                "후면 카메라 접근 실패, 최소 제약조건으로 시도:",
+                secondError
+              );
+
+              // 세 번째 시도: 최소 제약조건으로 시도
+              constraints = {
+                video: {
+                  facingMode: "user",
+                  width: { ideal: 640 },
+                  height: { ideal: 480 },
+                },
+                audio: false,
+              };
+              console.log(
+                "카메라 요청 설정 (3차-최소):",
+                JSON.stringify(constraints)
+              );
+              stream = await userMediaFunc(constraints);
+              console.log("최소 제약조건으로 카메라 스트림 획득 성공 (3차)");
+            }
+          }
+
+          if (!stream) {
+            throw new Error("카메라 스트림을 획득할 수 없습니다.");
+          }
 
           if (videoRef.current) {
             videoRef.current.srcObject = stream;
 
-            // iOS Safari에서 autoplay 정책 대응
-            videoRef.current.setAttribute("playsinline", "true");
+            // 비디오 요소 설정 (중요: 모든 브라우저 호환성 설정)
+            videoRef.current.setAttribute("playsinline", "true"); // iOS Safari 필수
             videoRef.current.setAttribute("muted", "true");
             videoRef.current.setAttribute("autoplay", "true");
+            videoRef.current.muted = true; // 프로그래밍 방식으로도 mute 설정
 
             // 추가 디버깅 로그
             console.log("videoRef 설정 완료:", {
@@ -334,70 +409,138 @@ export default function PalmReader() {
               height: videoRef.current.videoHeight,
               hasVideoTracks: stream.getVideoTracks().length > 0,
               readyState: videoRef.current.readyState,
+              videoTracks: stream.getVideoTracks().map((track) => ({
+                id: track.id,
+                label: track.label,
+                enabled: track.enabled,
+                settings: track.getSettings(),
+              })),
             });
 
+            // 비디오 메타데이터 로드 이벤트
             videoRef.current.onloadedmetadata = () => {
               console.log("비디오 메타데이터 로드됨, 재생 시도...");
 
               if (videoRef.current) {
                 // iOS Safari에서 추가 처리
                 videoRef.current.muted = true;
-                videoRef.current
-                  .play()
-                  .then(() => {
-                    console.log("비디오 재생 성공");
-                    setIsStreamActive(true);
-                    setAnalysisResult(null);
-                    // 간소화된 화면 표시 함수 사용
-                    requestAnimationFrame(detectAndCapture);
-                  })
-                  .catch((err) => {
-                    console.error("비디오 재생 실패:", err);
 
-                    // 자동 재생 정책 오류 처리
-                    if (
-                      err.name === "NotAllowedError" ||
-                      err.name === "AbortError"
-                    ) {
-                      toast.error(
-                        "브라우저 자동 재생 정책으로 인해 카메라를 시작할 수 없습니다. 화면을 터치해주세요."
-                      );
+                // 자동 재생 시도
+                const playPromise = videoRef.current.play();
 
-                      // 사용자 상호작용 요청 UI 표시
-                      const startVideoOnInteraction = () => {
-                        if (videoRef.current) {
-                          videoRef.current
-                            .play()
-                            .then(() => {
-                              console.log(
-                                "사용자 상호작용으로 비디오 재생 성공"
-                              );
-                              setIsStreamActive(true);
-                              requestAnimationFrame(detectAndCapture);
-                              document.removeEventListener(
-                                "click",
-                                startVideoOnInteraction
-                              );
-                            })
-                            .catch((e) => {
-                              console.error("상호작용 후에도 재생 실패:", e);
-                              setErrorMessage(getUserFriendlyErrorMessage(e));
-                              setIsCameraSupported(false);
-                            });
+                if (playPromise !== undefined) {
+                  playPromise
+                    .then(() => {
+                      console.log("비디오 재생 성공");
+                      setIsStreamActive(true);
+                      setAnalysisResult(null);
+                      // 간소화된 화면 표시 함수 사용
+                      requestAnimationFrame(detectAndCapture);
+                    })
+                    .catch((err) => {
+                      console.error("비디오 재생 실패:", err);
+
+                      // 자동 재생 정책 오류 처리
+                      if (
+                        err.name === "NotAllowedError" ||
+                        err.name === "AbortError"
+                      ) {
+                        toast.error(
+                          "브라우저 자동 재생 정책으로 인해 카메라를 시작할 수 없습니다. 화면을 터치해주세요."
+                        );
+
+                        // 화면 터치 이벤트로 비디오 재생 재시도 (사용자 상호작용)
+                        const startVideoOnInteraction = () => {
+                          if (videoRef.current) {
+                            videoRef.current
+                              .play()
+                              .then(() => {
+                                console.log(
+                                  "사용자 상호작용으로 비디오 재생 성공"
+                                );
+                                setIsStreamActive(true);
+                                requestAnimationFrame(detectAndCapture);
+                                document.removeEventListener(
+                                  "touchstart",
+                                  startVideoOnInteraction
+                                );
+                                document.removeEventListener(
+                                  "click",
+                                  startVideoOnInteraction
+                                );
+                              })
+                              .catch((e) => {
+                                console.error("상호작용 후에도 재생 실패:", e);
+                                setErrorMessage(getUserFriendlyErrorMessage(e));
+                                setIsCameraSupported(false);
+                              });
+                          }
+                        };
+
+                        // 모바일과 데스크톱 모두 지원하기 위해 터치와 클릭 이벤트 모두 등록
+                        document.addEventListener(
+                          "touchstart",
+                          startVideoOnInteraction
+                        );
+                        document.addEventListener(
+                          "click",
+                          startVideoOnInteraction
+                        );
+
+                        // 비디오 컨테이너에 시각적 피드백 추가
+                        if (
+                          videoRef.current &&
+                          videoRef.current.parentElement
+                        ) {
+                          const tapOverlay = document.createElement("div");
+                          tapOverlay.className =
+                            "absolute inset-0 flex items-center justify-center bg-black/50 z-10";
+                          tapOverlay.innerHTML =
+                            '<div class="text-white text-center p-4"><p class="font-medium">화면을 터치하여 카메라 시작</p><p class="text-sm opacity-70 mt-1">브라우저 정책으로 인해 카메라 시작에 사용자 상호작용이 필요합니다</p></div>';
+                          videoRef.current.parentElement.appendChild(
+                            tapOverlay
+                          );
+
+                          // 시작되면 오버레이 제거
+                          const removeOverlay = () => {
+                            if (tapOverlay && tapOverlay.parentElement) {
+                              tapOverlay.parentElement.removeChild(tapOverlay);
+                            }
+                            document.removeEventListener(
+                              "touchstart",
+                              removeOverlay
+                            );
+                            document.removeEventListener(
+                              "click",
+                              removeOverlay
+                            );
+                          };
+
+                          document.addEventListener(
+                            "touchstart",
+                            removeOverlay
+                          );
+                          document.addEventListener("click", removeOverlay);
                         }
-                      };
-
-                      document.addEventListener(
-                        "click",
-                        startVideoOnInteraction
-                      );
-                    } else {
-                      setErrorMessage(getUserFriendlyErrorMessage(err));
-                      setIsCameraSupported(false);
-                    }
-                  });
+                      } else {
+                        setErrorMessage(getUserFriendlyErrorMessage(err));
+                        setIsCameraSupported(false);
+                      }
+                    });
+                } else {
+                  console.warn("비디오 재생 Promise를 반환하지 않음");
+                  // Promise를 반환하지 않는 구형 브라우저를 위한 폴백
+                  setIsStreamActive(true);
+                  requestAnimationFrame(detectAndCapture);
+                }
               }
             };
+
+            // 추가 이벤트 리스너
+            videoRef.current.oncanplay = () =>
+              console.log("비디오 재생 가능 상태");
+            videoRef.current.onplaying = () =>
+              console.log("비디오 재생 시작됨");
 
             // 추가 오류 핸들링
             videoRef.current.onerror = (e) => {
