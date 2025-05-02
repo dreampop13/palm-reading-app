@@ -1,36 +1,58 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 손금 읽기 앱 (Palm Reading App)
 
-## Getting Started
+Next.js, TensorFlow.js, React 및 TypeScript를 활용한 AI 손금 읽기 웹 애플리케이션입니다.
 
-First, run the development server:
+## 주요 기능
+
+- 실시간 카메라를 통한 손바닥 인식
+- TensorFlow.js 기반 손 인식 모델
+- 손금 패턴 분석 및 결과 제공
+- 모바일 및 데스크톱 브라우저 지원
+- 다양한 브라우저 호환성 처리
+
+## 기술 스택
+
+- **프레임워크**: Next.js 15
+- **언어**: TypeScript
+- **스타일링**: Tailwind CSS
+- **UI 컴포넌트**: ShadCN UI
+- **아이콘**: Lucide React
+- **AI/ML**: TensorFlow.js, MediaPipe Hands
+
+## 시작하기
+
+### 설치
+
+```bash
+# 프로젝트 클론
+git clone https://github.com/yourusername/palm-reading-app.git
+cd palm-reading-app
+
+# 의존성 설치
+npm install
+```
+
+### 개발 서버 실행
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+브라우저에서 [http://localhost:3000](http://localhost:3000)으로 접속하여 애플리케이션을 이용할 수 있습니다.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 프로덕션 빌드
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run build
+npm start
+```
 
-## Learn More
+## 주의사항
 
-To learn more about Next.js, take a look at the following resources:
+- 카메라 API 사용을 위해 HTTPS 혹은 localhost 환경이 필요합니다.
+- 모바일에서 최적의 경험을 위해 최신 브라우저(Chrome, Safari 등)를 사용해주세요.
+- 백엔드 연동 기능은 제공되지 않으며, 모든 처리는 클라이언트 사이드에서 이루어집니다.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## 라이센스
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+MIT
