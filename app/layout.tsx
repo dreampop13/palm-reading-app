@@ -6,7 +6,7 @@ import { Toaster } from "@/components/ui/sonner";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "손금 읽기 앱",
+  title: "손금 (Palm Reading)",
   description: "TensorFlow.js를 활용한 손금 읽기 애플리케이션",
 };
 
