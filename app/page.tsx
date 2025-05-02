@@ -1,11 +1,6 @@
 "use client";
 
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Card, CardContent } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
-import { Camera, Book } from "lucide-react";
 import PalmReader from "@/components/palm-reader";
-import PalmInfo from "@/components/palm-info";
 
 export default function Home() {
   return (

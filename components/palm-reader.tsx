@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
@@ -60,156 +60,81 @@ export default function PalmReader() {
     }
   }, []);
 
-  // 모델 초기화
-  useEffect(() => {
-    // 브라우저가 getUserMedia를 지원하는지 확인
-    const checkMediaDevicesSupport = () => {
-      const userMediaFunc = getMediaPolyfill();
-      if (!userMediaFunc) {
-        console.error("이 브라우저는 카메라 API를 지원하지 않습니다.");
-        setErrorMessage(
-          "이 브라우저는 카메라 API를 지원하지 않습니다. 최신 버전의 Chrome, Safari, Firefox 등의 브라우저를 사용해 주세요."
-        );
-        setIsCameraSupported(false);
-        setIsModelLoading(false);
-        return false;
-      }
-      return true;
-    };
-
-    const loadModel = async () => {
+  // 손금 분석 함수 - 먼저 정의하여 의존성 문제 해결
+  const analyzePalm = useCallback(
+    async (hand: handPoseDetection.Hand) => {
       try {
-        setIsModelLoading(true);
+        // 분석 중복 실행 방지
+        if (isAnalyzing) return;
 
-        // 카메라 지원 여부 확인
-        if (!checkMediaDevicesSupport()) {
-          return;
-        }
+        setIsAnalyzing(true);
+        toast.info("손금을 분석 중입니다...");
 
-        // TensorFlow.js 초기화
-        await tf.ready();
-        console.log("TensorFlow.js 초기화 완료");
-
-        // 손 인식 모델 로드
-        const model = handPoseDetection.SupportedModels.MediaPipeHands;
-        const detectorConfig = {
-          runtime: "tfjs",
-          modelType: "full",
-          maxHands: 1,
-        } as handPoseDetection.MediaPipeHandsTfjsModelConfig;
-
-        console.log("손 인식 모델 로드 중...");
-        const handDetector = await handPoseDetection.createDetector(
-          model,
-          detectorConfig
-        );
-        console.log("손 인식 모델 로드 완료");
-
-        setDetector(handDetector);
-        setIsModelLoading(false);
-
-        // 카메라 스트림 시작
-        startCamera();
-      } catch (error) {
-        console.error("모델 로드 실패:", error);
-        toast.error("손 인식 모델을 로드하는데 실패했습니다.");
-        setIsModelLoading(false);
-      }
-    };
-
-    loadModel();
-
-    // 컴포넌트 언마운트 시 정리
-    return () => {
-      if (videoRef.current && videoRef.current.srcObject) {
-        const stream = videoRef.current.srcObject as MediaStream;
-        const tracks = stream.getTracks();
-        tracks.forEach((track) => track.stop());
-        setIsStreamActive(false);
-      }
-    };
-  }, []);
-
-  // 카메라 시작
-  const startCamera = async () => {
-    try {
-      console.log("카메라 시작 시도...");
-
-      // 브라우저 호환성을 위한 getUserMedia 함수 가져오기
-      const userMediaFunc = getMediaPolyfill();
-
-      // getUserMedia 함수가 존재하지 않으면 오류
-      if (!userMediaFunc) {
-        console.error("이 브라우저는 카메라 API를 지원하지 않습니다.");
-        setErrorMessage(
-          "이 브라우저는 카메라 API를 지원하지 않습니다. HTTPS 환경에서 최신 브라우저(Chrome, Safari 등)를 사용해 주세요."
-        );
-        toast.error("이 브라우저에서는 카메라를 사용할 수 없습니다.");
-        setIsCameraSupported(false);
-        return;
-      }
-
-      if (videoRef.current) {
-        // 이미 활성화된 스트림이 있으면 중단
-        if (videoRef.current.srcObject) {
+        // 분석을 위해 1.5초 간 비디오 정지
+        if (videoRef.current?.srcObject) {
           const stream = videoRef.current.srcObject as MediaStream;
           const tracks = stream.getTracks();
           tracks.forEach((track) => track.stop());
+          setIsStreamActive(false);
         }
 
-        try {
-          // 환경에 맞는 제약 조건 가져오기
-          const constraints = getCameraConstraints();
-          console.log("카메라 요청 설정:", JSON.stringify(constraints));
+        // 감지된 손 좌표 활용
+        console.log("감지된 손 키포인트:", hand.keypoints.length);
 
-          // 호환성을 고려한 getUserMedia 호출
-          const stream = await userMediaFunc(constraints);
-          console.log("카메라 스트림 획득 성공");
+        // 이미지 캡처 및 분석 로직 (1.5초 대기 후 결과 생성)
+        await new Promise((resolve) => setTimeout(resolve, 1500));
 
-          if (videoRef.current) {
-            videoRef.current.srcObject = stream;
+        // 손금 분석 결과 (실제로는 TensorFlow 모델로 분석해야 함)
+        // 여기서는 예시 결과 생성
+        const result: PalmAnalysisResult = {
+          lifeLine: {
+            length: ["짧은", "중간", "긴"][Math.floor(Math.random() * 3)],
+            quality: ["약한", "일반적인", "강한"][
+              Math.floor(Math.random() * 3)
+            ],
+            description:
+              "당신의 생명선은 건강과 활력을 나타냅니다. 생명선이 길고 깊을수록 건강한 삶을 의미합니다.",
+          },
+          heartLine: {
+            length: ["짧은", "중간", "긴"][Math.floor(Math.random() * 3)],
+            curve: ["직선적인", "적당한 곡선의", "뚜렷한 곡선의"][
+              Math.floor(Math.random() * 3)
+            ],
+            description:
+              "당신의 감정과 사랑의 방식을 보여줍니다. 곡선이 강할수록 감정 표현이 풍부합니다.",
+          },
+          headLine: {
+            length: ["짧은", "중간", "긴"][Math.floor(Math.random() * 3)],
+            depth: ["얕은", "중간 깊이의", "깊은"][
+              Math.floor(Math.random() * 3)
+            ],
+            description:
+              "당신의 사고방식과 지적 성향을 나타냅니다. 길고 깊은 머리선은 분석적 사고를 의미합니다.",
+          },
+          overall: [
+            "당신은 직관적이고 창의적인 성향을 지녔습니다. 새로운 아이디어를 발견하는 능력이 뛰어납니다.",
+            "안정적이고 현실적인 성향을 지녔습니다. 실용적인 문제 해결 능력이 뛰어납니다.",
+            "열정적이고 모험을 즐기는 성향입니다. 도전을 두려워하지 않는 용기가 있습니다.",
+          ][Math.floor(Math.random() * 3)],
+        };
 
-            // iOS Safari에서 autoplay 정책 대응
-            videoRef.current.setAttribute("playsinline", "true");
-            videoRef.current.setAttribute("muted", "true");
-            videoRef.current.setAttribute("autoplay", "true");
-
-            videoRef.current.onloadedmetadata = () => {
-              if (videoRef.current) {
-                console.log("비디오 메타데이터 로드됨, 재생 시도...");
-                videoRef.current
-                  .play()
-                  .then(() => {
-                    console.log("비디오 재생 성공");
-                    setIsStreamActive(true);
-                    setAnalysisResult(null);
-                    requestAnimationFrame(detectHands);
-                  })
-                  .catch((err) => {
-                    console.error("비디오 재생 실패:", err);
-                    setErrorMessage(getUserFriendlyErrorMessage(err));
-                    setIsCameraSupported(false);
-                  });
-              }
-            };
-          }
-        } catch (err) {
-          console.error("카메라 액세스 오류:", err);
-          setErrorMessage(getUserFriendlyErrorMessage(err));
-          toast.error(getUserFriendlyErrorMessage(err));
-          setIsCameraSupported(false);
-        }
+        setAnalysisResult(result);
+        setIsAnalyzing(false);
+        toast.success("손금 분석이 완료되었습니다");
+      } catch (error) {
+        console.error("분석 오류:", error);
+        setIsAnalyzing(false);
+        toast.error("분석 중 오류가 발생했습니다");
+        // 오류 발생 시 상태 초기화만 수행
+        setIsStreamActive(false);
+        setAnalysisResult(null);
       }
-    } catch (error) {
-      console.error("카메라 접근 실패:", error);
-      setErrorMessage(getUserFriendlyErrorMessage(error));
-      toast.error("카메라에 접근할 수 없습니다.");
-      setIsCameraSupported(false);
-    }
-  };
+    },
+    [isAnalyzing]
+  ); // 의존성 배열 최소화
 
   // 손 인식 루프
-  const detectHands = async () => {
+  const detectHands = useCallback(async () => {
     if (!detector || !videoRef.current || !canvasRef.current || !isStreamActive)
       return;
 
@@ -287,74 +212,162 @@ export default function PalmReader() {
         requestAnimationFrame(detectHands);
       }
     }
-  };
+  }, [detector, isAnalyzing, isStreamActive, analyzePalm]);
 
-  // 손금 분석 함수
-  const analyzePalm = async (hand: handPoseDetection.Hand) => {
+  // 카메라 시작
+  const startCamera = useCallback(async () => {
     try {
-      // 분석 중복 실행 방지
-      if (isAnalyzing) return;
+      console.log("카메라 시작 시도...");
 
-      setIsAnalyzing(true);
-      toast.info("손금을 분석 중입니다...");
+      // 브라우저 호환성을 위한 getUserMedia 함수 가져오기
+      const userMediaFunc = getMediaPolyfill();
 
-      // 분석을 위해 1.5초 간 비디오 정지
-      if (videoRef.current?.srcObject) {
-        const stream = videoRef.current.srcObject as MediaStream;
+      // getUserMedia 함수가 존재하지 않으면 오류
+      if (!userMediaFunc) {
+        console.error("이 브라우저는 카메라 API를 지원하지 않습니다.");
+        setErrorMessage(
+          "이 브라우저는 카메라 API를 지원하지 않습니다. HTTPS 환경에서 최신 브라우저(Chrome, Safari 등)를 사용해 주세요."
+        );
+        toast.error("이 브라우저에서는 카메라를 사용할 수 없습니다.");
+        setIsCameraSupported(false);
+        return;
+      }
+
+      if (videoRef.current) {
+        // 이미 활성화된 스트림이 있으면 중단
+        if (videoRef.current.srcObject) {
+          const stream = videoRef.current.srcObject as MediaStream;
+          const tracks = stream.getTracks();
+          tracks.forEach((track) => track.stop());
+        }
+
+        try {
+          // 환경에 맞는 제약 조건 가져오기
+          const constraints = getCameraConstraints();
+          console.log("카메라 요청 설정:", JSON.stringify(constraints));
+
+          // 호환성을 고려한 getUserMedia 호출
+          const stream = await userMediaFunc(constraints);
+          console.log("카메라 스트림 획득 성공");
+
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+
+            // iOS Safari에서 autoplay 정책 대응
+            videoRef.current.setAttribute("playsinline", "true");
+            videoRef.current.setAttribute("muted", "true");
+            videoRef.current.setAttribute("autoplay", "true");
+
+            videoRef.current.onloadedmetadata = () => {
+              if (videoRef.current) {
+                console.log("비디오 메타데이터 로드됨, 재생 시도...");
+                videoRef.current
+                  .play()
+                  .then(() => {
+                    console.log("비디오 재생 성공");
+                    setIsStreamActive(true);
+                    setAnalysisResult(null);
+                    requestAnimationFrame(detectHands);
+                  })
+                  .catch((err) => {
+                    console.error("비디오 재생 실패:", err);
+                    setErrorMessage(getUserFriendlyErrorMessage(err));
+                    setIsCameraSupported(false);
+                  });
+              }
+            };
+          }
+        } catch (err) {
+          console.error("카메라 액세스 오류:", err);
+          setErrorMessage(getUserFriendlyErrorMessage(err));
+          toast.error(getUserFriendlyErrorMessage(err));
+          setIsCameraSupported(false);
+        }
+      }
+    } catch (error) {
+      console.error("카메라 접근 실패:", error);
+      setErrorMessage(getUserFriendlyErrorMessage(error));
+      toast.error("카메라에 접근할 수 없습니다.");
+      setIsCameraSupported(false);
+    }
+  }, [detectHands]);
+
+  // 모델 초기화
+  useEffect(() => {
+    const checkMediaDevicesSupport = () => {
+      const userMediaFunc = getMediaPolyfill();
+      if (!userMediaFunc) {
+        console.error("이 브라우저는 카메라 API를 지원하지 않습니다.");
+        setErrorMessage(
+          "이 브라우저는 카메라 API를 지원하지 않습니다. 최신 버전의 Chrome, Safari, Firefox 등의 브라우저를 사용해 주세요."
+        );
+        setIsCameraSupported(false);
+        setIsModelLoading(false);
+        return false;
+      }
+      return true;
+    };
+
+    const loadModel = async () => {
+      try {
+        setIsModelLoading(true);
+
+        // 카메라 지원 여부 확인
+        if (!checkMediaDevicesSupport()) {
+          return;
+        }
+
+        // TensorFlow.js 초기화
+        await tf.ready();
+        console.log("TensorFlow.js 초기화 완료");
+
+        // 손 인식 모델 로드
+        const model = handPoseDetection.SupportedModels.MediaPipeHands;
+        const detectorConfig = {
+          runtime: "tfjs",
+          modelType: "full",
+          maxHands: 1,
+        } as handPoseDetection.MediaPipeHandsTfjsModelConfig;
+
+        console.log("손 인식 모델 로드 중...");
+        const handDetector = await handPoseDetection.createDetector(
+          model,
+          detectorConfig
+        );
+        console.log("손 인식 모델 로드 완료");
+
+        setDetector(handDetector);
+        setIsModelLoading(false);
+
+        // 카메라 스트림 시작
+        startCamera();
+      } catch (error) {
+        console.error("모델 로드 실패:", error);
+        toast.error("손 인식 모델을 로드하는데 실패했습니다.");
+        setIsModelLoading(false);
+      }
+    };
+
+    loadModel();
+
+    // 컴포넌트 언마운트 시 정리
+    return () => {
+      // 언마운트 시 현재 비디오 스트림 저장
+      const currentVideo = videoRef.current;
+      if (currentVideo && currentVideo.srcObject) {
+        const stream = currentVideo.srcObject as MediaStream;
         const tracks = stream.getTracks();
         tracks.forEach((track) => track.stop());
         setIsStreamActive(false);
       }
-
-      // 이미지 캡처 및 분석 로직 (1.5초 대기 후 결과 생성)
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-
-      // 손금 분석 결과 (실제로는 TensorFlow 모델로 분석해야 함)
-      // 여기서는 예시 결과 생성
-      const result: PalmAnalysisResult = {
-        lifeLine: {
-          length: ["짧은", "중간", "긴"][Math.floor(Math.random() * 3)],
-          quality: ["약한", "일반적인", "강한"][Math.floor(Math.random() * 3)],
-          description:
-            "당신의 생명선은 건강과 활력을 나타냅니다. 생명선이 길고 깊을수록 건강한 삶을 의미합니다.",
-        },
-        heartLine: {
-          length: ["짧은", "중간", "긴"][Math.floor(Math.random() * 3)],
-          curve: ["직선적인", "적당한 곡선의", "뚜렷한 곡선의"][
-            Math.floor(Math.random() * 3)
-          ],
-          description:
-            "당신의 감정과 사랑의 방식을 보여줍니다. 곡선이 강할수록 감정 표현이 풍부합니다.",
-        },
-        headLine: {
-          length: ["짧은", "중간", "긴"][Math.floor(Math.random() * 3)],
-          depth: ["얕은", "중간 깊이의", "깊은"][Math.floor(Math.random() * 3)],
-          description:
-            "당신의 사고방식과 지적 성향을 나타냅니다. 길고 깊은 머리선은 분석적 사고를 의미합니다.",
-        },
-        overall: [
-          "당신은 직관적이고 창의적인 성향을 지녔습니다. 새로운 아이디어를 발견하는 능력이 뛰어납니다.",
-          "안정적이고 현실적인 성향을 지녔습니다. 실용적인 문제 해결 능력이 뛰어납니다.",
-          "열정적이고 모험을 즐기는 성향입니다. 도전을 두려워하지 않는 용기가 있습니다.",
-        ][Math.floor(Math.random() * 3)],
-      };
-
-      setAnalysisResult(result);
-      setIsAnalyzing(false);
-      toast.success("손금 분석이 완료되었습니다");
-    } catch (error) {
-      console.error("분석 오류:", error);
-      setIsAnalyzing(false);
-      toast.error("분석 중 오류가 발생했습니다");
-      startCamera(); // 오류 발생 시 카메라 재시작
-    }
-  };
+    };
+  }, [startCamera]); // startCamera 의존성 추가
 
   // 다시 시작
-  const handleReset = () => {
+  const handleReset = useCallback(() => {
     setAnalysisResult(null);
     startCamera();
-  };
+  }, [startCamera]);
 
   return (
     <div className="flex flex-col w-full">
