@@ -318,7 +318,7 @@ export default function PalmReader() {
           // iOS & 모바일 디바이스용 최적화된 카메라 접근
           let constraints = {
             video: {
-              facingMode: "user", // 전면 카메라 우선
+              facingMode: "environment", // 후면 카메라 우선 사용
               width: { ideal: 1280 },
               height: { ideal: 720 },
             },
@@ -350,38 +350,41 @@ export default function PalmReader() {
           // 첫 번째 시도: 기본 설정으로 시도
           let stream;
           try {
-            console.log("카메라 요청 설정 (1차):", JSON.stringify(constraints));
+            console.log(
+              "카메라 요청 설정 (1차-후면):",
+              JSON.stringify(constraints)
+            );
             stream = await userMediaFunc(constraints);
-            console.log("카메라 스트림 획득 성공 (1차)");
+            console.log("카메라 스트림 획득 성공 (1차-후면)");
           } catch (initialError) {
             console.warn("첫 카메라 접근 실패, 대체 방법 시도:", initialError);
 
-            // 두 번째 시도: 후면 카메라로 시도
+            // 두 번째 시도: 전면 카메라로 시도
             try {
               constraints = {
                 video: {
-                  facingMode: "environment", // 후면 카메라로 시도
+                  facingMode: "user", // 전면 카메라로 시도
                   width: { ideal: 1280 },
                   height: { ideal: 720 },
                 },
                 audio: false,
               };
               console.log(
-                "카메라 요청 설정 (2차-후면):",
+                "카메라 요청 설정 (2차-전면):",
                 JSON.stringify(constraints)
               );
               stream = await userMediaFunc(constraints);
-              console.log("후면 카메라 스트림 획득 성공 (2차)");
+              console.log("전면 카메라 스트림 획득 성공 (2차)");
             } catch (secondError) {
               console.warn(
-                "후면 카메라 접근 실패, 최소 제약조건으로 시도:",
+                "전면 카메라 접근 실패, 최소 제약조건으로 시도:",
                 secondError
               );
 
               // 세 번째 시도: 최소 제약조건으로 시도
               constraints = {
                 video: {
-                  facingMode: "user",
+                  facingMode: "environment", // 다시 후면 카메라로 시도 - 낮은 해상도
                   width: { ideal: 640 },
                   height: { ideal: 480 },
                 },
@@ -627,6 +630,17 @@ export default function PalmReader() {
 
       toast.info("손금을 분석 중입니다...");
 
+      // 분석용 캔버스에 현재 화면 캡처
+      const capturedCanvas = document.createElement("canvas");
+      if (videoRef.current && canvasRef.current) {
+        capturedCanvas.width = videoRef.current.videoWidth;
+        capturedCanvas.height = videoRef.current.videoHeight;
+        const ctx = capturedCanvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(videoRef.current, 0, 0);
+        }
+      }
+
       // 분석을 위해 1.5초 간 비디오 정지
       if (videoRef.current?.srcObject) {
         const stream = videoRef.current.srcObject as MediaStream;
@@ -747,8 +761,22 @@ export default function PalmReader() {
 
   // 다시 시작
   const handleReset = useCallback(() => {
+    // 분석 결과 초기화
     setAnalysisResult(null);
-    startCamera();
+
+    // UI 상태 초기화
+    setIsAnalyzing(false);
+    setHandDetected(false);
+
+    // 카메라 컨테이너 배경 초기화
+    if (videoRef.current && videoRef.current.parentElement) {
+      videoRef.current.parentElement.style.backgroundColor = "transparent";
+    }
+
+    // 약간의 지연 후 카메라 재시작 (UI 업데이트 후)
+    setTimeout(() => {
+      startCamera();
+    }, 100);
   }, [startCamera]);
 
   // App initialization
@@ -929,7 +957,10 @@ export default function PalmReader() {
                   onClick={() => {
                     console.log("카메라 버튼 클릭됨");
                     setSelectedMode("camera");
-                    startCamera();
+                    // 카메라 권한 즉시 요청
+                    setTimeout(() => {
+                      startCamera();
+                    }, 100); // 약간의 지연을 두어 UI 업데이트 후 권한 요청
                   }}
                   size="lg"
                   className="h-32 flex flex-col gap-2 w-full"
