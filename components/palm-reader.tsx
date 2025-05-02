@@ -7,7 +7,9 @@ import { Separator } from "@/components/ui/separator";
 import { RefreshCw, Camera, HandMetal, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 import * as handPoseDetection from "@tensorflow-models/hand-pose-detection";
-import * as tf from "@tensorflow/tfjs";
+import * as tf from "@tensorflow/tfjs-core";
+import "@tensorflow/tfjs-backend-webgl";
+import "@tensorflow/tfjs-converter";
 import {
   getUserMedia as getMediaPolyfill,
   getBrowserInfo,
@@ -49,6 +51,7 @@ export default function PalmReader() {
   const [browserInfo, setBrowserInfo] = useState<ReturnType<
     typeof getBrowserInfo
   > | null>(null);
+  const [loadingProgress, setLoadingProgress] = useState(0);
 
   // 브라우저 환경 정보 설정
   useEffect(() => {
@@ -311,11 +314,14 @@ export default function PalmReader() {
     const loadModel = async () => {
       try {
         setIsModelLoading(true);
+        setLoadingProgress(5);
 
         // 카메라 지원 여부 확인
         if (!checkMediaDevicesSupport()) {
           return;
         }
+
+        setLoadingProgress(10);
 
         // TensorFlow.js 초기화 - Vercel 배포에서 로딩 문제 해결을 위한 백오프 재시도 로직 추가
         let tfReady = false;
@@ -339,6 +345,7 @@ export default function PalmReader() {
 
             tfReady = true;
             console.log("TensorFlow.js 초기화 완료");
+            setLoadingProgress(30);
           } catch (err) {
             console.error(
               `TensorFlow.js 초기화 실패 (시도 ${retryCount + 1}):`,
@@ -356,6 +363,8 @@ export default function PalmReader() {
           throw new Error("TensorFlow.js 초기화 실패");
         }
 
+        setLoadingProgress(50);
+
         // 손 인식 모델 로드 - 백오프 재시도 로직 추가
         const model = handPoseDetection.SupportedModels.MediaPipeHands;
         const detectorConfig = {
@@ -363,6 +372,10 @@ export default function PalmReader() {
           modelType: "lite", // 'full' 대신 'lite' 사용하여 모델 크기 감소
           maxHands: 1,
           solutionPath: "https://cdn.jsdelivr.net/npm/@mediapipe/hands", // CDN 경로 명시적 지정
+          detectorModelUrl:
+            "https://tfhub.dev/mediapipe/tfjs-model/handpose_3d/detector/lite/1", // 명시적으로 더 가벼운 detector 모델 지정
+          landmarkModelUrl:
+            "https://tfhub.dev/mediapipe/tfjs-model/handpose_3d/landmark/lite/1", // 명시적으로 더 가벼운 landmark 모델 지정
         } as handPoseDetection.MediaPipeHandsTfjsModelConfig;
 
         console.log("손 인식 모델 로드 중...");
@@ -375,6 +388,11 @@ export default function PalmReader() {
             console.log(
               `손 인식 모델 로드 시도 ${retryCount + 1}/${maxRetries}`
             );
+            // 진행률 업데이트 (50% ~ 90% 사이에서 진행)
+            setLoadingProgress(
+              50 + Math.floor(((retryCount + 1) * 40) / maxRetries)
+            );
+
             handDetector = await handPoseDetection.createDetector(
               model,
               detectorConfig
@@ -397,8 +415,10 @@ export default function PalmReader() {
           throw new Error("손 인식 모델 로드 실패");
         }
 
+        setLoadingProgress(95);
         setDetector(handDetector);
         setIsModelLoading(false);
+        setLoadingProgress(100);
 
         // 카메라 스트림 시작
         startCamera();
@@ -483,7 +503,15 @@ export default function PalmReader() {
         ) : isModelLoading ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center">
             <Skeleton className="h-12 w-12 rounded-full" />
-            <p className="text-white mt-4 text-sm">AI 모델 로딩 중...</p>
+            <p className="text-white mt-4 text-sm">
+              AI 모델 로딩 중... {loadingProgress}%
+            </p>
+            <div className="w-64 h-2 bg-gray-700 rounded-full mt-2 overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-blue-500 to-teal-500 rounded-full transition-all duration-300 ease-out"
+                style={{ width: `${loadingProgress}%` }}
+              ></div>
+            </div>
             <p className="text-white/70 text-xs mt-2">
               처음 로딩에는 시간이 소요될 수 있습니다
             </p>
