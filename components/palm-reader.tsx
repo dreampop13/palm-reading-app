@@ -4,12 +4,18 @@ import { useRef, useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
-import { RefreshCw, Camera, HandMetal, AlertCircle } from "lucide-react";
+import {
+  RefreshCw,
+  Camera,
+  HandMetal,
+  AlertCircle,
+  Zap,
+  Upload,
+  ArrowLeft,
+} from "lucide-react";
 import { toast } from "sonner";
-import * as handPoseDetection from "@tensorflow-models/hand-pose-detection";
 import * as tf from "@tensorflow/tfjs-core";
 import "@tensorflow/tfjs-backend-webgl";
-import "@tensorflow/tfjs-converter";
 import {
   getUserMedia as getMediaPolyfill,
   getBrowserInfo,
@@ -39,10 +45,9 @@ type PalmAnalysisResult = {
 export default function PalmReader() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [isModelLoading, setIsModelLoading] = useState(true);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [detector, setDetector] =
-    useState<handPoseDetection.HandDetector | null>(null);
   const [analysisResult, setAnalysisResult] =
     useState<PalmAnalysisResult | null>(null);
   const [isStreamActive, setIsStreamActive] = useState(false);
@@ -52,6 +57,42 @@ export default function PalmReader() {
     typeof getBrowserInfo
   > | null>(null);
   const [loadingProgress, setLoadingProgress] = useState(0);
+  const [useSimpleMode, setUseSimpleMode] = useState(false);
+  const [selectedMode, setSelectedMode] = useState<
+    "initial" | "camera" | "upload"
+  >("initial");
+  const [uploadedImage, setUploadedImage] = useState<string | null>(null);
+
+  // 진행 상태 표시 효과
+  useEffect(() => {
+    // 로딩 상태일 때만 진행률을 증가시킴
+    if (isModelLoading && loadingProgress < 95) {
+      const timer = setTimeout(() => {
+        // 로딩 진행률이 10-15%에서 멈추면 바로 간단 모드로 전환
+        if (loadingProgress >= 10 && loadingProgress < 15) {
+          console.log("초기 로딩이 지연되어 즉시 간단 모드로 전환합니다.");
+          setUseSimpleMode(true);
+          setLoadingProgress(50); // 바로 50%로 점프
+
+          // 5초 후 로딩 완료 처리
+          setTimeout(() => {
+            setIsModelLoading(false);
+            setLoadingProgress(100);
+          }, 2000);
+        }
+        // 로딩 진행률이 30%에서 멈추면 간단 모드로 전환
+        else if (loadingProgress >= 30 && loadingProgress < 35) {
+          console.log("모델 로딩이 지연되어 간단 모드로 전환합니다.");
+          setUseSimpleMode(true);
+          setLoadingProgress((prev) => prev + 20);
+        } else {
+          setLoadingProgress((prev) => Math.min(prev + 5, 95));
+        }
+      }, 500);
+
+      return () => clearTimeout(timer);
+    }
+  }, [isModelLoading, loadingProgress]);
 
   // 브라우저 환경 정보 설정
   useEffect(() => {
@@ -63,159 +104,109 @@ export default function PalmReader() {
     }
   }, []);
 
-  // 손금 분석 함수 - 먼저 정의하여 의존성 문제 해결
-  const analyzePalm = useCallback(
-    async (hand: handPoseDetection.Hand) => {
-      try {
-        // 분석 중복 실행 방지
-        if (isAnalyzing) return;
-
-        setIsAnalyzing(true);
-        toast.info("손금을 분석 중입니다...");
-
-        // 분석을 위해 1.5초 간 비디오 정지
-        if (videoRef.current?.srcObject) {
-          const stream = videoRef.current.srcObject as MediaStream;
-          const tracks = stream.getTracks();
-          tracks.forEach((track) => track.stop());
-          setIsStreamActive(false);
-        }
-
-        // 감지된 손 좌표 활용
-        console.log("감지된 손 키포인트:", hand.keypoints.length);
-
-        // 이미지 캡처 및 분석 로직 (1.5초 대기 후 결과 생성)
-        await new Promise((resolve) => setTimeout(resolve, 1500));
-
-        // 손금 분석 결과 (실제로는 TensorFlow 모델로 분석해야 함)
-        // 여기서는 예시 결과 생성
-        const result: PalmAnalysisResult = {
-          lifeLine: {
-            length: ["짧은", "중간", "긴"][Math.floor(Math.random() * 3)],
-            quality: ["약한", "일반적인", "강한"][
-              Math.floor(Math.random() * 3)
-            ],
-            description:
-              "당신의 생명선은 건강과 활력을 나타냅니다. 생명선이 길고 깊을수록 건강한 삶을 의미합니다.",
-          },
-          heartLine: {
-            length: ["짧은", "중간", "긴"][Math.floor(Math.random() * 3)],
-            curve: ["직선적인", "적당한 곡선의", "뚜렷한 곡선의"][
-              Math.floor(Math.random() * 3)
-            ],
-            description:
-              "당신의 감정과 사랑의 방식을 보여줍니다. 곡선이 강할수록 감정 표현이 풍부합니다.",
-          },
-          headLine: {
-            length: ["짧은", "중간", "긴"][Math.floor(Math.random() * 3)],
-            depth: ["얕은", "중간 깊이의", "깊은"][
-              Math.floor(Math.random() * 3)
-            ],
-            description:
-              "당신의 사고방식과 지적 성향을 나타냅니다. 길고 깊은 머리선은 분석적 사고를 의미합니다.",
-          },
-          overall: [
-            "당신은 직관적이고 창의적인 성향을 지녔습니다. 새로운 아이디어를 발견하는 능력이 뛰어납니다.",
-            "안정적이고 현실적인 성향을 지녔습니다. 실용적인 문제 해결 능력이 뛰어납니다.",
-            "열정적이고 모험을 즐기는 성향입니다. 도전을 두려워하지 않는 용기가 있습니다.",
-          ][Math.floor(Math.random() * 3)],
-        };
-
-        setAnalysisResult(result);
-        setIsAnalyzing(false);
-        toast.success("손금 분석이 완료되었습니다");
-      } catch (error) {
-        console.error("분석 오류:", error);
-        setIsAnalyzing(false);
-        toast.error("분석 중 오류가 발생했습니다");
-        // 오류 발생 시 상태 초기화만 수행
-        setIsStreamActive(false);
-        setAnalysisResult(null);
-      }
-    },
-    [isAnalyzing]
-  ); // 의존성 배열 최소화
-
-  // 손 인식 루프
-  const detectHands = useCallback(async () => {
-    if (!detector || !videoRef.current || !canvasRef.current || !isStreamActive)
-      return;
-
+  // 손금 분석 함수
+  const analyzePalm = useCallback(async () => {
     try {
-      // 분석 중일 때는 검출 중단
+      // 분석 중복 실행 방지
       if (isAnalyzing) return;
 
-      // 손 인식 실행
-      const hands = await detector.estimateHands(videoRef.current);
+      setIsAnalyzing(true);
+      toast.info("손금을 분석 중입니다...");
 
-      // 결과 그리기
-      const ctx = canvasRef.current.getContext("2d");
-      if (!ctx) return;
-
-      // 캔버스 초기화
-      ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-
-      // 비디오 사이즈에 맞게 캔버스 조절
-      const videoWidth = videoRef.current.videoWidth;
-      const videoHeight = videoRef.current.videoHeight;
-      canvasRef.current.width = videoWidth;
-      canvasRef.current.height = videoHeight;
-
-      // 손바닥 가이드라인 그리기 (점선 원)
-      ctx.beginPath();
-      ctx.setLineDash([5, 5]);
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.7)";
-      ctx.lineWidth = 2;
-      const centerX = videoWidth / 2;
-      const centerY = videoHeight / 2;
-      const radius = Math.min(videoWidth, videoHeight) * 0.35;
-      ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-      ctx.stroke();
-
-      // 손 위치 가이드 텍스트
-      if (hands.length === 0) {
-        ctx.font = "20px Arial";
-        ctx.fillStyle = "rgba(255, 255, 255, 0.7)";
-        ctx.textAlign = "center";
-        ctx.fillText(
-          "손바닥을 가이드라인에 맞추세요",
-          centerX,
-          centerY - radius - 20
-        );
-      } else {
-        // 손이 감지되면 자동으로 분석 시작
-        const hand = hands[0];
-
-        // 손바닥 중심 계산 (엄지 밑 부분과 새끼손가락 밑 부분의 중간점)
-        const palm = {
-          x: (hand.keypoints[0].x + hand.keypoints[17].x) / 2,
-          y: (hand.keypoints[0].y + hand.keypoints[17].y) / 2,
-        };
-
-        // 손이 가이드라인 중앙에 있는지 확인
-        const distanceFromCenter = Math.sqrt(
-          Math.pow(palm.x - centerX, 2) + Math.pow(palm.y - centerY, 2)
-        );
-
-        // 손이 가이드라인 안에 있을 때 자동으로 캡처
-        if (distanceFromCenter < radius * 0.5) {
-          // 손금 분석 시작
-          analyzePalm(hand);
-        }
+      // 분석을 위해 1.5초 간 비디오 정지
+      if (videoRef.current?.srcObject) {
+        const stream = videoRef.current.srcObject as MediaStream;
+        const tracks = stream.getTracks();
+        tracks.forEach((track) => track.stop());
+        setIsStreamActive(false);
       }
 
-      // 다음 프레임 계속 처리
-      if (isStreamActive && !isAnalyzing) {
-        requestAnimationFrame(detectHands);
-      }
+      // 이미지 캡처 및 분석 로직 (1.5초 대기 후 결과 생성)
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+
+      // 손금 분석 결과 (랜덤 생성)
+      const result: PalmAnalysisResult = {
+        lifeLine: {
+          length: ["짧은", "중간", "긴"][Math.floor(Math.random() * 3)],
+          quality: ["약한", "일반적인", "강한"][Math.floor(Math.random() * 3)],
+          description:
+            "당신의 생명선은 건강과 활력을 나타냅니다. 생명선이 길고 깊을수록 건강한 삶을 의미합니다.",
+        },
+        heartLine: {
+          length: ["짧은", "중간", "긴"][Math.floor(Math.random() * 3)],
+          curve: ["직선적인", "적당한 곡선의", "뚜렷한 곡선의"][
+            Math.floor(Math.random() * 3)
+          ],
+          description:
+            "당신의 감정과 사랑의 방식을 보여줍니다. 곡선이 강할수록 감정 표현이 풍부합니다.",
+        },
+        headLine: {
+          length: ["짧은", "중간", "긴"][Math.floor(Math.random() * 3)],
+          depth: ["얕은", "중간 깊이의", "깊은"][Math.floor(Math.random() * 3)],
+          description:
+            "당신의 사고방식과 지적 성향을 나타냅니다. 길고 깊은 머리선은 분석적 사고를 의미합니다.",
+        },
+        overall: [
+          "당신은 직관적이고 창의적인 성향을 지녔습니다. 새로운 아이디어를 발견하는 능력이 뛰어납니다.",
+          "안정적이고 현실적인 성향을 지녔습니다. 실용적인 문제 해결 능력이 뛰어납니다.",
+          "열정적이고 모험을 즐기는 성향입니다. 도전을 두려워하지 않는 용기가 있습니다.",
+        ][Math.floor(Math.random() * 3)],
+      };
+
+      setAnalysisResult(result);
+      setIsAnalyzing(false);
+      toast.success("손금 분석이 완료되었습니다");
     } catch (error) {
-      console.error("손 인식 오류:", error);
-      // 오류가 있어도 계속 실행
-      if (isStreamActive && !isAnalyzing) {
-        requestAnimationFrame(detectHands);
-      }
+      console.error("분석 오류:", error);
+      setIsAnalyzing(false);
+      toast.error("분석 중 오류가 발생했습니다");
+      setIsStreamActive(false);
+      setAnalysisResult(null);
     }
-  }, [detector, isAnalyzing, isStreamActive, analyzePalm]);
+  }, [isAnalyzing]);
+
+  // 손 감지 함수 (간소화 버전)
+  const detectAndCapture = useCallback(() => {
+    if (!videoRef.current || !canvasRef.current || !isStreamActive) return;
+
+    const ctx = canvasRef.current.getContext("2d");
+    if (!ctx) return;
+
+    // 캔버스 초기화
+    const videoWidth = videoRef.current.videoWidth;
+    const videoHeight = videoRef.current.videoHeight;
+    canvasRef.current.width = videoWidth;
+    canvasRef.current.height = videoHeight;
+
+    // 비디오 프레임 캡처
+    ctx.drawImage(videoRef.current, 0, 0, videoWidth, videoHeight);
+
+    // 가이드라인 그리기
+    ctx.beginPath();
+    ctx.setLineDash([5, 5]);
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.7)";
+    ctx.lineWidth = 2;
+    const centerX = videoWidth / 2;
+    const centerY = videoHeight / 2;
+    const radius = Math.min(videoWidth, videoHeight) * 0.35;
+    ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // 가이드 텍스트
+    ctx.font = "20px Arial";
+    ctx.fillStyle = "rgba(255, 255, 255, 0.7)";
+    ctx.textAlign = "center";
+    ctx.fillText(
+      "손바닥을 가이드라인에 맞추고 촬영 버튼을 누르세요",
+      centerX,
+      centerY - radius - 20
+    );
+
+    // 다음 프레임
+    if (isStreamActive && !isAnalyzing) {
+      requestAnimationFrame(detectAndCapture);
+    }
+  }, [isStreamActive, isAnalyzing]);
 
   // 카메라 시작
   const startCamera = useCallback(async () => {
@@ -270,7 +261,8 @@ export default function PalmReader() {
                     console.log("비디오 재생 성공");
                     setIsStreamActive(true);
                     setAnalysisResult(null);
-                    requestAnimationFrame(detectHands);
+                    // 간소화된 화면 표시 함수 사용
+                    requestAnimationFrame(detectAndCapture);
                   })
                   .catch((err) => {
                     console.error("비디오 재생 실패:", err);
@@ -293,239 +285,167 @@ export default function PalmReader() {
       toast.error("카메라에 접근할 수 없습니다.");
       setIsCameraSupported(false);
     }
-  }, [detectHands]);
+  }, [detectAndCapture]);
 
-  // 모델 초기화
+  // 파일 업로드 처리
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // 이미지 파일 확인
+    if (!file.type.startsWith("image/")) {
+      toast.error("이미지 파일만 업로드할 수 있습니다");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const result = e.target?.result as string;
+      setUploadedImage(result);
+
+      // 업로드된 이미지가 있으면 스트림 중지
+      if (videoRef.current?.srcObject) {
+        const stream = videoRef.current.srcObject as MediaStream;
+        const tracks = stream.getTracks();
+        tracks.forEach((track) => track.stop());
+        setIsStreamActive(false);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // 업로드된 이미지 분석
+  const analyzeUploadedImage = async () => {
+    if (!uploadedImage) return;
+
+    setIsAnalyzing(true);
+    toast.info("손금을 분석 중입니다...");
+
+    // 분석 로직 (1.5초 대기 후 결과 생성)
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    // 손금 분석 결과 (랜덤 생성)
+    const result: PalmAnalysisResult = {
+      lifeLine: {
+        length: ["짧은", "중간", "긴"][Math.floor(Math.random() * 3)],
+        quality: ["약한", "일반적인", "강한"][Math.floor(Math.random() * 3)],
+        description:
+          "당신의 생명선은 건강과 활력을 나타냅니다. 생명선이 길고 깊을수록 건강한 삶을 의미합니다.",
+      },
+      heartLine: {
+        length: ["짧은", "중간", "긴"][Math.floor(Math.random() * 3)],
+        curve: ["직선적인", "적당한 곡선의", "뚜렷한 곡선의"][
+          Math.floor(Math.random() * 3)
+        ],
+        description:
+          "당신의 감정과 사랑의 방식을 보여줍니다. 곡선이 강할수록 감정 표현이 풍부합니다.",
+      },
+      headLine: {
+        length: ["짧은", "중간", "긴"][Math.floor(Math.random() * 3)],
+        depth: ["얕은", "중간 깊이의", "깊은"][Math.floor(Math.random() * 3)],
+        description:
+          "당신의 사고방식과 지적 성향을 나타냅니다. 길고 깊은 머리선은 분석적 사고를 의미합니다.",
+      },
+      overall: [
+        "당신은 직관적이고 창의적인 성향을 지녔습니다. 새로운 아이디어를 발견하는 능력이 뛰어납니다.",
+        "안정적이고 현실적인 성향을 지녔습니다. 실용적인 문제 해결 능력이 뛰어납니다.",
+        "열정적이고 모험을 즐기는 성향입니다. 도전을 두려워하지 않는 용기가 있습니다.",
+      ][Math.floor(Math.random() * 3)],
+    };
+
+    setAnalysisResult(result);
+    setIsAnalyzing(false);
+    toast.success("손금 분석이 완료되었습니다");
+  };
+
+  // 모드 선택으로 돌아가기
+  const backToModeSelection = () => {
+    // 카메라 스트림 중지
+    if (videoRef.current?.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream;
+      const tracks = stream.getTracks();
+      tracks.forEach((track) => track.stop());
+    }
+
+    setSelectedMode("initial");
+    setIsStreamActive(false);
+    setUploadedImage(null);
+    setAnalysisResult(null);
+  };
+
+  // 다시 시작
+  const handleReset = useCallback(() => {
+    setAnalysisResult(null);
+
+    if (selectedMode === "camera") {
+      startCamera();
+    } else {
+      setUploadedImage(null);
+      setSelectedMode("upload");
+    }
+  }, [startCamera, selectedMode]);
+
+  // 초기화 로직 변경
   useEffect(() => {
-    let loadingTimeoutId: NodeJS.Timeout;
-
-    const checkMediaDevicesSupport = () => {
-      const userMediaFunc = getMediaPolyfill();
-      if (!userMediaFunc) {
-        console.error("이 브라우저는 카메라 API를 지원하지 않습니다.");
-        setErrorMessage(
-          "이 브라우저는 카메라 API를 지원하지 않습니다. 최신 버전의 Chrome, Safari, Firefox 등의 브라우저를 사용해 주세요."
-        );
-        setIsCameraSupported(false);
-        setIsModelLoading(false);
-        return false;
-      }
-      return true;
-    };
-
-    // 로딩이 오래 걸릴 경우 대체 방안 제공
-    const setupLoadingTimeout = () => {
-      // 10초 후에도 로딩이 완료되지 않으면 사용자에게 알림
-      loadingTimeoutId = setTimeout(() => {
-        if (isModelLoading && loadingProgress <= 70) {
-          console.log("모델 로딩이 오래 걸리고 있습니다. 대체 로직 시도...");
-
-          // 진행률 표시 업데이트
-          setLoadingProgress(75);
-          toast.info(
-            "모델 로딩에 시간이 걸리고 있습니다. 대체 모델로 전환합니다."
-          );
-
-          // 더 간단한 모델로 재시도
-          tryAlternativeModel();
-        }
-      }, 10000);
-    };
-
-    // 대체 모델 사용
-    const tryAlternativeModel = async () => {
-      try {
-        console.log("대체 모델 로딩 시도...");
-
-        // 기존 진행 중인 모델 로딩 정리
-        try {
-          tf.engine().endScope();
-          tf.engine().disposeVariables();
-        } catch (e) {
-          console.warn("TensorFlow.js 엔진 정리 오류:", e);
-        }
-
-        // 더 가벼운 대체 모델 설정
-        const model = handPoseDetection.SupportedModels.MediaPipeHands;
-        const simpleConfig = {
-          runtime: "tfjs",
-          modelType: "lite",
-          maxHands: 1,
-          // 더 가볍고 간단한 검출 모델만 사용
-          detectorModelUrl:
-            "https://tfhub.dev/mediapipe/tfjs-model/handpose_3d/detector/lite/1",
-        } as handPoseDetection.MediaPipeHandsTfjsModelConfig;
-
-        setLoadingProgress(80);
-
-        // 대체 모델 로드 시도
-        const handDetector = await handPoseDetection.createDetector(
-          model,
-          simpleConfig
-        );
-
-        if (handDetector) {
-          console.log("대체 모델 로드 성공");
-          setLoadingProgress(95);
-          setDetector(handDetector);
-          setIsModelLoading(false);
-          setLoadingProgress(100);
-          startCamera();
-        } else {
-          throw new Error("대체 모델 로드 실패");
-        }
-      } catch (error) {
-        console.error("대체 모델 로드 실패:", error);
-        setErrorMessage(
-          "모델 로드에 실패했습니다. 브라우저를 새로고침하거나 다른 브라우저를 사용해보세요."
-        );
-        setLoadingProgress(0);
-        setIsCameraSupported(false);
-        setIsModelLoading(false);
-      }
-    };
-
-    const loadModel = async () => {
+    const initializeApp = async () => {
       try {
         setIsModelLoading(true);
-        setLoadingProgress(5);
-
-        // 카메라 지원 여부 확인
-        if (!checkMediaDevicesSupport()) {
-          return;
-        }
-
         setLoadingProgress(10);
 
-        // 로딩 타임아웃 설정
-        setupLoadingTimeout();
-
-        // TensorFlow.js 초기화 - Vercel 배포에서 로딩 문제 해결을 위한 백오프 재시도 로직 추가
-        let tfReady = false;
-        let retryCount = 0;
-        const maxRetries = 3;
-
-        while (!tfReady && retryCount < maxRetries) {
-          try {
-            console.log(
-              `TensorFlow.js 초기화 시도 ${retryCount + 1}/${maxRetries}`
-            );
-            await tf.ready();
-
-            // 모델 캐시 정리 시도
-            try {
-              console.log("TensorFlow.js 엔진 상태 확인");
-              tf.engine().startScope(); // 새 스코프 시작
-            } catch (e) {
-              console.warn("TensorFlow.js 엔진 스코프 시작 오류:", e);
-            }
-
-            tfReady = true;
-            console.log("TensorFlow.js 초기화 완료");
-            setLoadingProgress(30);
-          } catch (err) {
-            console.error(
-              `TensorFlow.js 초기화 실패 (시도 ${retryCount + 1}):`,
-              err
-            );
-            retryCount++;
-            // 지수 백오프 (500ms, 1000ms, 2000ms)
-            await new Promise((resolve) =>
-              setTimeout(resolve, 500 * Math.pow(2, retryCount - 1))
-            );
-          }
+        // 카메라 지원 여부 확인
+        const userMediaFunc = getMediaPolyfill();
+        if (!userMediaFunc) {
+          console.warn(
+            "카메라를 지원하지 않는 환경입니다. 업로드만 가능합니다."
+          );
+          setIsCameraSupported(false);
         }
 
-        if (!tfReady) {
-          throw new Error("TensorFlow.js 초기화 실패");
+        setLoadingProgress(30);
+
+        // TensorFlow 로딩 생략하고 직접 간소화된 기능 제공
+        try {
+          // 최소한의 TensorFlow 초기화
+          await Promise.race([
+            tf.ready(),
+            new Promise((_, reject) =>
+              setTimeout(
+                () => reject(new Error("TensorFlow 초기화 시간 초과")),
+                5000
+              )
+            ),
+          ]);
+          console.log("TensorFlow 기본 엔진 초기화 완료");
+          setLoadingProgress(50);
+        } catch (err) {
+          console.warn("TensorFlow 초기화 오류, 간단 모드로 진행:", err);
+          setUseSimpleMode(true);
+          setLoadingProgress(50); // 오류가 발생해도 진행률 업데이트
         }
 
-        setLoadingProgress(50);
+        // 추가 초기화 단계
+        setLoadingProgress(70);
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        setLoadingProgress(90);
 
-        // 손 인식 모델 로드 - 백오프 재시도 로직 추가
-        const model = handPoseDetection.SupportedModels.MediaPipeHands;
-        const detectorConfig = {
-          runtime: "tfjs",
-          modelType: "lite", // 'full' 대신 'lite' 사용하여 모델 크기 감소
-          maxHands: 1,
-          solutionPath: "https://cdn.jsdelivr.net/npm/@mediapipe/hands", // CDN 경로 명시적 지정
-          detectorModelUrl:
-            "https://tfhub.dev/mediapipe/tfjs-model/handpose_3d/detector/lite/1", // 명시적으로 더 가벼운 detector 모델 지정
-          // landmarkModelUrl 제거하여 불필요한 모델 로딩 방지
-        } as handPoseDetection.MediaPipeHandsTfjsModelConfig;
-
-        console.log("손 인식 모델 로드 중...");
-
-        let handDetector = null;
-        retryCount = 0;
-
-        while (!handDetector && retryCount < maxRetries) {
-          try {
-            console.log(
-              `손 인식 모델 로드 시도 ${retryCount + 1}/${maxRetries}`
-            );
-            // 진행률 업데이트 (50% ~ 90% 사이에서 진행)
-            setLoadingProgress(
-              50 + Math.floor(((retryCount + 1) * 40) / maxRetries)
-            );
-
-            // 모델 로드 타임아웃 설정 (각 시도마다 8초)
-            const modelLoadPromise = handPoseDetection.createDetector(
-              model,
-              detectorConfig
-            );
-            const timeoutPromise = new Promise((_, reject) => {
-              setTimeout(() => reject(new Error("모델 로드 시간 초과")), 8000);
-            });
-
-            // 타임아웃과 모델 로드 중 먼저 완료되는 것 사용
-            handDetector = (await Promise.race([
-              modelLoadPromise,
-              timeoutPromise,
-            ])) as handPoseDetection.HandDetector;
-            console.log("손 인식 모델 로드 완료");
-          } catch (err) {
-            console.error(
-              `손 인식 모델 로드 실패 (시도 ${retryCount + 1}):`,
-              err
-            );
-            retryCount++;
-            // 지수 백오프
-            await new Promise((resolve) =>
-              setTimeout(resolve, 1000 * Math.pow(2, retryCount - 1))
-            );
-          }
-        }
-
-        if (!handDetector) {
-          throw new Error("손 인식 모델 로드 실패");
-        }
-
-        setLoadingProgress(95);
-        setDetector(handDetector);
+        // 로딩 완료
         setIsModelLoading(false);
         setLoadingProgress(100);
-
-        // 카메라 스트림 시작
-        startCamera();
       } catch (error) {
-        console.error("모델 로드 실패:", error);
-        // 일반적인 모델 로드 실패 시 대체 모델 시도
-        console.log("기본 모델 로드 실패, 대체 모델 시도...");
-        tryAlternativeModel();
+        console.error("초기화 오류:", error);
+        setErrorMessage(
+          "애플리케이션 초기화에 실패했습니다. 브라우저를 새로고침하거나 다른 브라우저를 사용해보세요."
+        );
+        setUseSimpleMode(true); // 오류 시 간단 모드로 전환
+        setIsCameraSupported(false);
+        setIsModelLoading(false);
       }
     };
 
-    loadModel();
+    initializeApp();
 
-    // 컴포넌트 언마운트 시 정리
     return () => {
-      // 타임아웃 정리
-      if (loadingTimeoutId) {
-        clearTimeout(loadingTimeoutId);
-      }
-
-      // 언마운트 시 현재 비디오 스트림 저장
+      // 언마운트 시 현재 비디오 스트림 정리
       const currentVideo = videoRef.current;
       if (currentVideo && currentVideo.srcObject) {
         const stream = currentVideo.srcObject as MediaStream;
@@ -534,27 +454,19 @@ export default function PalmReader() {
         setIsStreamActive(false);
       }
 
-      // TensorFlow.js 리소스 정리
+      // TensorFlow 리소스 정리
       try {
-        console.log("TensorFlow.js 리소스 정리");
-        tf.engine().endScope();
         tf.engine().disposeVariables();
       } catch (err) {
-        console.error("TensorFlow.js 리소스 정리 중 오류:", err);
+        console.warn("리소스 정리 오류:", err);
       }
     };
-  }, [startCamera, isModelLoading, loadingProgress]); // 의존성 추가
-
-  // 다시 시작
-  const handleReset = useCallback(() => {
-    setAnalysisResult(null);
-    startCamera();
-  }, [startCamera]);
+  }, []);
 
   return (
     <div className="flex flex-col w-full">
       <div className="relative w-full aspect-[4/3] bg-black">
-        {!isCameraSupported ? (
+        {!isCameraSupported && selectedMode === "camera" ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center">
             <AlertCircle className="h-10 w-10 text-red-500 mb-2" />
             <h3 className="text-white font-medium mb-2">
@@ -566,12 +478,12 @@ export default function PalmReader() {
             </p>
             <div className="mt-4 flex flex-col gap-2">
               <Button
-                onClick={() => window.location.reload()}
+                onClick={backToModeSelection}
                 className="bg-white text-black hover:bg-gray-200"
                 size="sm"
               >
-                <RefreshCw className="h-3 w-3 mr-2" />
-                다시 시도하기
+                <ArrowLeft className="h-3 w-3 mr-2" />
+                다른 방법으로 시도하기
               </Button>
 
               {browserInfo && (
@@ -601,8 +513,72 @@ export default function PalmReader() {
             <p className="text-white/70 text-xs mt-2">
               처음 로딩에는 시간이 소요될 수 있습니다
             </p>
+            {useSimpleMode && (
+              <div className="mt-4 flex items-center text-white/90 text-xs px-3 py-1.5 bg-blue-500/20 rounded-full">
+                <Zap className="h-3 w-3 mr-1" /> 간단 모드로 실행 중
+              </div>
+            )}
+            {loadingProgress < 50 && loadingProgress > 0 && (
+              <Button
+                onClick={() => window.location.reload()}
+                variant="outline"
+                size="sm"
+                className="mt-4 bg-white/10 text-white hover:bg-white/20"
+              >
+                <RefreshCw className="h-3 w-3 mr-1" />
+                로딩 다시 시도
+              </Button>
+            )}
           </div>
-        ) : (
+        ) : selectedMode === "initial" ? (
+          // 모드 선택 화면
+          <div className="absolute inset-0 flex flex-col items-center justify-center p-4 bg-gradient-to-b from-slate-900 to-slate-800">
+            <h3 className="text-white font-medium mb-6 text-xl">
+              손금 읽기 방법 선택
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-md">
+              <Button
+                onClick={() => {
+                  setSelectedMode("camera");
+                  startCamera();
+                }}
+                size="lg"
+                className="h-32 flex flex-col gap-2"
+                disabled={!isCameraSupported}
+              >
+                <Camera className="h-8 w-8 mb-2" />
+                <span className="text-base">사진 촬영하기</span>
+                {!isCameraSupported && (
+                  <span className="text-xs opacity-70">지원되지 않음</span>
+                )}
+              </Button>
+
+              <Button
+                onClick={() => {
+                  setSelectedMode("upload");
+                  if (fileInputRef.current) {
+                    fileInputRef.current.click();
+                  }
+                }}
+                variant="outline"
+                size="lg"
+                className="h-32 flex flex-col gap-2"
+              >
+                <Upload className="h-8 w-8 mb-2" />
+                <span className="text-base">이미지 업로드</span>
+              </Button>
+            </div>
+
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileUpload}
+              accept="image/*"
+              className="hidden"
+            />
+          </div>
+        ) : selectedMode === "camera" ? (
+          // 카메라 모드
           <>
             <video
               ref={videoRef}
@@ -617,14 +593,122 @@ export default function PalmReader() {
             />
             {!isStreamActive && !isAnalyzing && !analysisResult && (
               <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <Button onClick={startCamera} size="lg" className="gap-2">
+                <Button onClick={startCamera} size="lg" className="gap-2 mb-4">
                   <Camera className="h-4 w-4" />
                   카메라 시작
                 </Button>
+                <Button
+                  onClick={backToModeSelection}
+                  variant="outline"
+                  size="sm"
+                  className="bg-black/30 text-white border-white/20 hover:bg-black/50"
+                >
+                  <ArrowLeft className="h-3 w-3 mr-1" />
+                  다시 선택하기
+                </Button>
               </div>
             )}
+
+            {/* 촬영 버튼 및 뒤로가기 버튼 */}
+            {isStreamActive && !isAnalyzing && !analysisResult && (
+              <>
+                <div className="absolute bottom-4 left-0 right-0 flex justify-center">
+                  <Button
+                    onClick={analyzePalm}
+                    size="lg"
+                    className="bg-white text-black hover:bg-gray-100 rounded-full w-16 h-16 shadow-lg"
+                  >
+                    <Camera className="h-6 w-6" />
+                  </Button>
+                </div>
+                <div className="absolute top-4 left-4">
+                  <Button
+                    onClick={backToModeSelection}
+                    variant="outline"
+                    size="sm"
+                    className="bg-black/30 text-white border-white/20 hover:bg-black/50"
+                  >
+                    <ArrowLeft className="h-3 w-3 mr-1" />
+                    뒤로
+                  </Button>
+                </div>
+              </>
+            )}
           </>
-        )}
+        ) : selectedMode === "upload" && !uploadedImage ? (
+          // 업로드 모드 - 파일 선택 전
+          <div className="absolute inset-0 flex flex-col items-center justify-center p-4 bg-gradient-to-b from-slate-900 to-slate-800">
+            <div className="flex flex-col items-center justify-center w-full max-w-md">
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileUpload}
+                accept="image/*"
+                className="hidden"
+              />
+              <Button
+                onClick={() => fileInputRef.current?.click()}
+                size="lg"
+                className="gap-2 w-full max-w-xs h-32 flex flex-col"
+              >
+                <Upload className="h-8 w-8 mb-2" />
+                <span className="text-base">손바닥 이미지 선택</span>
+                <span className="text-xs opacity-70">JPG, PNG 파일</span>
+              </Button>
+
+              <Button
+                onClick={backToModeSelection}
+                variant="outline"
+                size="sm"
+                className="mt-4"
+              >
+                <ArrowLeft className="h-3 w-3 mr-1" />
+                다시 선택하기
+              </Button>
+            </div>
+          </div>
+        ) : uploadedImage && !analysisResult ? (
+          // 업로드 모드 - 이미지 선택 후
+          <div className="absolute inset-0 flex flex-col">
+            <div className="relative flex-grow">
+              <img
+                src={uploadedImage}
+                alt="업로드된 이미지"
+                className="absolute inset-0 w-full h-full object-contain"
+              />
+              <div className="absolute top-4 left-4 flex gap-2">
+                <Button
+                  onClick={backToModeSelection}
+                  variant="outline"
+                  size="sm"
+                  className="bg-black/30 text-white border-white/20 hover:bg-black/50"
+                >
+                  <ArrowLeft className="h-3 w-3 mr-1" />
+                  뒤로
+                </Button>
+              </div>
+            </div>
+            <div className="p-4 flex justify-center">
+              <Button
+                onClick={analyzeUploadedImage}
+                className="gap-2"
+                disabled={isAnalyzing}
+              >
+                {isAnalyzing ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                    분석 중...
+                  </>
+                ) : (
+                  <>
+                    <HandMetal className="h-4 w-4" />
+                    손금 분석하기
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {/* 분석 결과 */}
@@ -632,15 +716,26 @@ export default function PalmReader() {
         <div className="p-4">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-bold">손금 분석 결과</h2>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleReset}
-              className="gap-1"
-            >
-              <RefreshCw className="h-3 w-3" />
-              다시 찍기
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleReset}
+                className="gap-1"
+              >
+                <RefreshCw className="h-3 w-3" />
+                다시 시도
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={backToModeSelection}
+                className="gap-1"
+              >
+                <ArrowLeft className="h-3 w-3" />
+                다른 방법
+              </Button>
+            </div>
           </div>
 
           <div className="space-y-4">
