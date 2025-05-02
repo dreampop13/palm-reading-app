@@ -10,7 +10,6 @@ import {
   HandMetal,
   AlertCircle,
   Zap,
-  Upload,
   ArrowLeft,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -45,7 +44,6 @@ type PalmAnalysisResult = {
 export default function PalmReader() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [isModelLoading, setIsModelLoading] = useState(true);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] =
@@ -58,10 +56,9 @@ export default function PalmReader() {
   > | null>(null);
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [useSimpleMode, setUseSimpleMode] = useState(false);
-  const [selectedMode, setSelectedMode] = useState<
-    "initial" | "camera" | "upload"
-  >("initial");
-  const [uploadedImage, setUploadedImage] = useState<string | null>(null);
+  const [selectedMode, setSelectedMode] = useState<"initial" | "camera">(
+    "initial"
+  );
 
   // 진행 상태 표시 효과
   useEffect(() => {
@@ -287,77 +284,6 @@ export default function PalmReader() {
     }
   }, [detectAndCapture]);
 
-  // 파일 업로드 처리
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    // 이미지 파일 확인
-    if (!file.type.startsWith("image/")) {
-      toast.error("이미지 파일만 업로드할 수 있습니다");
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const result = e.target?.result as string;
-      setUploadedImage(result);
-
-      // 업로드된 이미지가 있으면 스트림 중지
-      if (videoRef.current?.srcObject) {
-        const stream = videoRef.current.srcObject as MediaStream;
-        const tracks = stream.getTracks();
-        tracks.forEach((track) => track.stop());
-        setIsStreamActive(false);
-      }
-    };
-    reader.readAsDataURL(file);
-  };
-
-  // 업로드된 이미지 분석
-  const analyzeUploadedImage = async () => {
-    if (!uploadedImage) return;
-
-    setIsAnalyzing(true);
-    toast.info("손금을 분석 중입니다...");
-
-    // 분석 로직 (1.5초 대기 후 결과 생성)
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-
-    // 손금 분석 결과 (랜덤 생성)
-    const result: PalmAnalysisResult = {
-      lifeLine: {
-        length: ["짧은", "중간", "긴"][Math.floor(Math.random() * 3)],
-        quality: ["약한", "일반적인", "강한"][Math.floor(Math.random() * 3)],
-        description:
-          "당신의 생명선은 건강과 활력을 나타냅니다. 생명선이 길고 깊을수록 건강한 삶을 의미합니다.",
-      },
-      heartLine: {
-        length: ["짧은", "중간", "긴"][Math.floor(Math.random() * 3)],
-        curve: ["직선적인", "적당한 곡선의", "뚜렷한 곡선의"][
-          Math.floor(Math.random() * 3)
-        ],
-        description:
-          "당신의 감정과 사랑의 방식을 보여줍니다. 곡선이 강할수록 감정 표현이 풍부합니다.",
-      },
-      headLine: {
-        length: ["짧은", "중간", "긴"][Math.floor(Math.random() * 3)],
-        depth: ["얕은", "중간 깊이의", "깊은"][Math.floor(Math.random() * 3)],
-        description:
-          "당신의 사고방식과 지적 성향을 나타냅니다. 길고 깊은 머리선은 분석적 사고를 의미합니다.",
-      },
-      overall: [
-        "당신은 직관적이고 창의적인 성향을 지녔습니다. 새로운 아이디어를 발견하는 능력이 뛰어납니다.",
-        "안정적이고 현실적인 성향을 지녔습니다. 실용적인 문제 해결 능력이 뛰어납니다.",
-        "열정적이고 모험을 즐기는 성향입니다. 도전을 두려워하지 않는 용기가 있습니다.",
-      ][Math.floor(Math.random() * 3)],
-    };
-
-    setAnalysisResult(result);
-    setIsAnalyzing(false);
-    toast.success("손금 분석이 완료되었습니다");
-  };
-
   // 모드 선택으로 돌아가기
   const backToModeSelection = () => {
     // 카메라 스트림 중지
@@ -369,21 +295,14 @@ export default function PalmReader() {
 
     setSelectedMode("initial");
     setIsStreamActive(false);
-    setUploadedImage(null);
     setAnalysisResult(null);
   };
 
   // 다시 시작
   const handleReset = useCallback(() => {
     setAnalysisResult(null);
-
-    if (selectedMode === "camera") {
-      startCamera();
-    } else {
-      setUploadedImage(null);
-      setSelectedMode("upload");
-    }
-  }, [startCamera, selectedMode]);
+    startCamera();
+  }, [startCamera]);
 
   // 초기화 로직 변경
   useEffect(() => {
@@ -464,164 +383,124 @@ export default function PalmReader() {
   }, []);
 
   return (
-    <div className="flex flex-col w-full">
-      <div className="relative w-full aspect-[4/3] bg-black">
-        {!isCameraSupported && selectedMode === "camera" ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center">
-            <AlertCircle className="h-10 w-10 text-red-500 mb-2" />
-            <h3 className="text-white font-medium mb-2">
-              카메라를 사용할 수 없습니다
-            </h3>
-            <p className="text-white/70 text-sm">
-              {errorMessage ||
-                "이 기기에서는 카메라에 접근할 수 없습니다. HTTPS 환경에서 접속하거나 다른 브라우저를 사용해보세요."}
-            </p>
-            <div className="mt-4 flex flex-col gap-2">
-              <Button
-                onClick={backToModeSelection}
-                className="bg-white text-black hover:bg-gray-200"
-                size="sm"
-              >
-                <ArrowLeft className="h-3 w-3 mr-2" />
-                다른 방법으로 시도하기
-              </Button>
+    <div className="flex flex-col w-full min-h-screen">
+      <div className="flex-grow">
+        <div className="relative w-full aspect-[4/3] bg-black">
+          {!isCameraSupported && selectedMode === "camera" ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center">
+              <AlertCircle className="h-10 w-10 text-red-500 mb-2" />
+              <h3 className="text-white font-medium mb-2">
+                카메라를 사용할 수 없습니다
+              </h3>
+              <p className="text-white/70 text-sm">
+                {errorMessage ||
+                  "이 기기에서는 카메라에 접근할 수 없습니다. HTTPS 환경에서 접속하거나 다른 브라우저를 사용해보세요."}
+              </p>
+              <div className="mt-4 flex flex-col gap-2">
+                <Button
+                  onClick={() => window.location.reload()}
+                  className="bg-white text-black hover:bg-gray-200"
+                  size="sm"
+                >
+                  <RefreshCw className="h-3 w-3 mr-2" />
+                  다시 시도하기
+                </Button>
 
-              {browserInfo && (
-                <div className="text-white/70 text-xs mt-2 space-y-1">
-                  <p>브라우저: {browserInfo.userAgent}</p>
-                  <p>모바일: {browserInfo.isMobile ? "예" : "아니오"}</p>
-                  <p>
-                    보안 컨텍스트:{" "}
-                    {browserInfo.isSecureContext ? "예" : "아니오"}
-                  </p>
+                {browserInfo && (
+                  <div className="text-white/70 text-xs mt-2 space-y-1">
+                    <p>브라우저: {browserInfo.userAgent}</p>
+                    <p>모바일: {browserInfo.isMobile ? "예" : "아니오"}</p>
+                    <p>
+                      보안 컨텍스트:{" "}
+                      {browserInfo.isSecureContext ? "예" : "아니오"}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : isModelLoading ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center">
+              <Skeleton className="h-12 w-12 rounded-full" />
+              <p className="text-white mt-4 text-sm">
+                AI 모델 로딩 중... {loadingProgress}%
+              </p>
+              <div className="w-64 h-2 bg-gray-700 rounded-full mt-2 overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-blue-500 to-teal-500 rounded-full transition-all duration-300 ease-out"
+                  style={{ width: `${loadingProgress}%` }}
+                ></div>
+              </div>
+              <p className="text-white/70 text-xs mt-2">
+                처음 로딩에는 시간이 소요될 수 있습니다
+              </p>
+              {useSimpleMode && (
+                <div className="mt-4 flex items-center text-white/90 text-xs px-3 py-1.5 bg-blue-500/20 rounded-full">
+                  <Zap className="h-3 w-3 mr-1" /> 간단 모드로 실행 중
                 </div>
               )}
-            </div>
-          </div>
-        ) : isModelLoading ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <Skeleton className="h-12 w-12 rounded-full" />
-            <p className="text-white mt-4 text-sm">
-              AI 모델 로딩 중... {loadingProgress}%
-            </p>
-            <div className="w-64 h-2 bg-gray-700 rounded-full mt-2 overflow-hidden">
-              <div
-                className="h-full bg-gradient-to-r from-blue-500 to-teal-500 rounded-full transition-all duration-300 ease-out"
-                style={{ width: `${loadingProgress}%` }}
-              ></div>
-            </div>
-            <p className="text-white/70 text-xs mt-2">
-              처음 로딩에는 시간이 소요될 수 있습니다
-            </p>
-            {useSimpleMode && (
-              <div className="mt-4 flex items-center text-white/90 text-xs px-3 py-1.5 bg-blue-500/20 rounded-full">
-                <Zap className="h-3 w-3 mr-1" /> 간단 모드로 실행 중
-              </div>
-            )}
-            {loadingProgress < 50 && loadingProgress > 0 && (
-              <Button
-                onClick={() => window.location.reload()}
-                variant="outline"
-                size="sm"
-                className="mt-4 bg-white/10 text-white hover:bg-white/20"
-              >
-                <RefreshCw className="h-3 w-3 mr-1" />
-                로딩 다시 시도
-              </Button>
-            )}
-          </div>
-        ) : selectedMode === "initial" ? (
-          // 모드 선택 화면
-          <div className="absolute inset-0 flex flex-col items-center justify-center p-4 bg-gradient-to-b from-slate-900 to-slate-800">
-            <h3 className="text-white font-medium mb-6 text-xl">
-              손금 읽기 방법 선택
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-md">
-              <Button
-                onClick={() => {
-                  setSelectedMode("camera");
-                  startCamera();
-                }}
-                size="lg"
-                className="h-32 flex flex-col gap-2"
-                disabled={!isCameraSupported}
-              >
-                <Camera className="h-8 w-8 mb-2" />
-                <span className="text-base">사진 촬영하기</span>
-                {!isCameraSupported && (
-                  <span className="text-xs opacity-70">지원되지 않음</span>
-                )}
-              </Button>
-
-              <Button
-                onClick={() => {
-                  setSelectedMode("upload");
-                  if (fileInputRef.current) {
-                    fileInputRef.current.click();
-                  }
-                }}
-                variant="outline"
-                size="lg"
-                className="h-32 flex flex-col gap-2"
-              >
-                <Upload className="h-8 w-8 mb-2" />
-                <span className="text-base">이미지 업로드</span>
-              </Button>
-            </div>
-
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileUpload}
-              accept="image/*"
-              className="hidden"
-            />
-          </div>
-        ) : selectedMode === "camera" ? (
-          // 카메라 모드
-          <>
-            <video
-              ref={videoRef}
-              className="absolute inset-0 w-full h-full object-cover"
-              playsInline
-              muted
-              autoPlay
-            />
-            <canvas
-              ref={canvasRef}
-              className="absolute inset-0 w-full h-full object-cover"
-            />
-            {!isStreamActive && !isAnalyzing && !analysisResult && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <Button onClick={startCamera} size="lg" className="gap-2 mb-4">
-                  <Camera className="h-4 w-4" />
-                  카메라 시작
-                </Button>
+              {loadingProgress < 50 && loadingProgress > 0 && (
                 <Button
-                  onClick={backToModeSelection}
+                  onClick={() => window.location.reload()}
                   variant="outline"
                   size="sm"
-                  className="bg-black/30 text-white border-white/20 hover:bg-black/50"
+                  className="mt-4 bg-white/10 text-white hover:bg-white/20"
                 >
-                  <ArrowLeft className="h-3 w-3 mr-1" />
-                  다시 선택하기
+                  <RefreshCw className="h-3 w-3 mr-1" />
+                  로딩 다시 시도
+                </Button>
+              )}
+            </div>
+          ) : selectedMode === "initial" ? (
+            // 모드 선택 화면
+            <div className="absolute inset-0 flex flex-col items-center justify-center p-4 bg-gradient-to-b from-slate-900 to-slate-800">
+              <h3 className="text-white font-medium mb-2 text-xl">
+                손금 AI 분석기
+              </h3>
+              <p className="text-white/70 mb-6 text-center">
+                손바닥을 카메라에 비추면 AI가 손금을 분석해 드립니다.
+              </p>
+              <div className="w-full max-w-md">
+                <Button
+                  onClick={() => {
+                    setSelectedMode("camera");
+                    startCamera();
+                  }}
+                  size="lg"
+                  className="h-32 flex flex-col gap-2 w-full"
+                  disabled={!isCameraSupported}
+                >
+                  <Camera className="h-8 w-8 mb-2" />
+                  <span className="text-base">사진 촬영하기</span>
+                  {!isCameraSupported && (
+                    <span className="text-xs opacity-70">지원되지 않음</span>
+                  )}
                 </Button>
               </div>
-            )}
-
-            {/* 촬영 버튼 및 뒤로가기 버튼 */}
-            {isStreamActive && !isAnalyzing && !analysisResult && (
-              <>
-                <div className="absolute bottom-4 left-0 right-0 flex justify-center">
+            </div>
+          ) : selectedMode === "camera" ? (
+            // 카메라 모드
+            <>
+              <video
+                ref={videoRef}
+                className="absolute inset-0 w-full h-full object-cover"
+                playsInline
+                muted
+                autoPlay
+              />
+              <canvas
+                ref={canvasRef}
+                className="absolute inset-0 w-full h-full object-cover"
+              />
+              {!isStreamActive && !isAnalyzing && !analysisResult && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
                   <Button
-                    onClick={analyzePalm}
+                    onClick={startCamera}
                     size="lg"
-                    className="bg-white text-black hover:bg-gray-100 rounded-full w-16 h-16 shadow-lg"
+                    className="gap-2 mb-4"
                   >
-                    <Camera className="h-6 w-6" />
+                    <Camera className="h-4 w-4" />
+                    카메라 시작
                   </Button>
-                </div>
-                <div className="absolute top-4 left-4">
                   <Button
                     onClick={backToModeSelection}
                     variant="outline"
@@ -629,94 +508,45 @@ export default function PalmReader() {
                     className="bg-black/30 text-white border-white/20 hover:bg-black/50"
                   >
                     <ArrowLeft className="h-3 w-3 mr-1" />
-                    뒤로
+                    다시 선택하기
                   </Button>
                 </div>
-              </>
-            )}
-          </>
-        ) : selectedMode === "upload" && !uploadedImage ? (
-          // 업로드 모드 - 파일 선택 전
-          <div className="absolute inset-0 flex flex-col items-center justify-center p-4 bg-gradient-to-b from-slate-900 to-slate-800">
-            <div className="flex flex-col items-center justify-center w-full max-w-md">
-              <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleFileUpload}
-                accept="image/*"
-                className="hidden"
-              />
-              <Button
-                onClick={() => fileInputRef.current?.click()}
-                size="lg"
-                className="gap-2 w-full max-w-xs h-32 flex flex-col"
-              >
-                <Upload className="h-8 w-8 mb-2" />
-                <span className="text-base">손바닥 이미지 선택</span>
-                <span className="text-xs opacity-70">JPG, PNG 파일</span>
-              </Button>
+              )}
 
-              <Button
-                onClick={backToModeSelection}
-                variant="outline"
-                size="sm"
-                className="mt-4"
-              >
-                <ArrowLeft className="h-3 w-3 mr-1" />
-                다시 선택하기
-              </Button>
-            </div>
-          </div>
-        ) : uploadedImage && !analysisResult ? (
-          // 업로드 모드 - 이미지 선택 후
-          <div className="absolute inset-0 flex flex-col">
-            <div className="relative flex-grow">
-              <img
-                src={uploadedImage}
-                alt="업로드된 이미지"
-                className="absolute inset-0 w-full h-full object-contain"
-              />
-              <div className="absolute top-4 left-4 flex gap-2">
-                <Button
-                  onClick={backToModeSelection}
-                  variant="outline"
-                  size="sm"
-                  className="bg-black/30 text-white border-white/20 hover:bg-black/50"
-                >
-                  <ArrowLeft className="h-3 w-3 mr-1" />
-                  뒤로
-                </Button>
-              </div>
-            </div>
-            <div className="p-4 flex justify-center">
-              <Button
-                onClick={analyzeUploadedImage}
-                className="gap-2"
-                disabled={isAnalyzing}
-              >
-                {isAnalyzing ? (
-                  <>
-                    <RefreshCw className="h-4 w-4 animate-spin" />
-                    분석 중...
-                  </>
-                ) : (
-                  <>
-                    <HandMetal className="h-4 w-4" />
-                    손금 분석하기
-                  </>
-                )}
-              </Button>
-            </div>
-          </div>
-        ) : null}
-      </div>
+              {/* 촬영 버튼 및 뒤로가기 버튼 */}
+              {isStreamActive && !isAnalyzing && !analysisResult && (
+                <>
+                  <div className="absolute bottom-4 left-0 right-0 flex justify-center">
+                    <Button
+                      onClick={analyzePalm}
+                      size="lg"
+                      className="bg-white text-black hover:bg-gray-100 rounded-full w-16 h-16 shadow-lg"
+                    >
+                      <Camera className="h-6 w-6" />
+                    </Button>
+                  </div>
+                  <div className="absolute top-4 left-4">
+                    <Button
+                      onClick={backToModeSelection}
+                      variant="outline"
+                      size="sm"
+                      className="bg-black/30 text-white border-white/20 hover:bg-black/50"
+                    >
+                      <ArrowLeft className="h-3 w-3 mr-1" />
+                      뒤로
+                    </Button>
+                  </div>
+                </>
+              )}
+            </>
+          ) : null}
+        </div>
 
-      {/* 분석 결과 */}
-      {analysisResult && (
-        <div className="p-4">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-bold">손금 분석 결과</h2>
-            <div className="flex gap-2">
+        {/* 분석 결과 */}
+        {analysisResult && (
+          <div className="p-4">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold">손금 분석 결과</h2>
               <Button
                 variant="outline"
                 size="sm"
@@ -726,58 +556,56 @@ export default function PalmReader() {
                 <RefreshCw className="h-3 w-3" />
                 다시 시도
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={backToModeSelection}
-                className="gap-1"
-              >
-                <ArrowLeft className="h-3 w-3" />
-                다른 방법
-              </Button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-lg font-medium flex items-center gap-2">
+                  <HandMetal className="h-4 w-4" />
+                  종합 해석
+                </h3>
+                <p className="mt-1">{analysisResult.overall}</p>
+              </div>
+
+              <Separator />
+
+              <div>
+                <h3 className="font-medium mb-2">생명선</h3>
+                <p className="text-sm text-muted-foreground mb-1">
+                  {analysisResult.lifeLine.length} 길이,{" "}
+                  {analysisResult.lifeLine.quality} 강도
+                </p>
+                <p className="text-sm">{analysisResult.lifeLine.description}</p>
+              </div>
+
+              <div>
+                <h3 className="font-medium mb-2">감정선</h3>
+                <p className="text-sm text-muted-foreground mb-1">
+                  {analysisResult.heartLine.length} 길이,{" "}
+                  {analysisResult.heartLine.curve} 곡선
+                </p>
+                <p className="text-sm">
+                  {analysisResult.heartLine.description}
+                </p>
+              </div>
+
+              <div>
+                <h3 className="font-medium mb-2">지성선</h3>
+                <p className="text-sm text-muted-foreground mb-1">
+                  {analysisResult.headLine.length} 길이,{" "}
+                  {analysisResult.headLine.depth} 깊이
+                </p>
+                <p className="text-sm">{analysisResult.headLine.description}</p>
+              </div>
             </div>
           </div>
+        )}
+      </div>
 
-          <div className="space-y-4">
-            <div>
-              <h3 className="text-lg font-medium flex items-center gap-2">
-                <HandMetal className="h-4 w-4" />
-                종합 해석
-              </h3>
-              <p className="mt-1">{analysisResult.overall}</p>
-            </div>
-
-            <Separator />
-
-            <div>
-              <h3 className="font-medium mb-2">생명선</h3>
-              <p className="text-sm text-muted-foreground mb-1">
-                {analysisResult.lifeLine.length} 길이,{" "}
-                {analysisResult.lifeLine.quality} 강도
-              </p>
-              <p className="text-sm">{analysisResult.lifeLine.description}</p>
-            </div>
-
-            <div>
-              <h3 className="font-medium mb-2">감정선</h3>
-              <p className="text-sm text-muted-foreground mb-1">
-                {analysisResult.heartLine.length} 길이,{" "}
-                {analysisResult.heartLine.curve} 곡선
-              </p>
-              <p className="text-sm">{analysisResult.heartLine.description}</p>
-            </div>
-
-            <div>
-              <h3 className="font-medium mb-2">지성선</h3>
-              <p className="text-sm text-muted-foreground mb-1">
-                {analysisResult.headLine.length} 길이,{" "}
-                {analysisResult.headLine.depth} 깊이
-              </p>
-              <p className="text-sm">{analysisResult.headLine.description}</p>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* 푸터 추가 */}
+      <footer className="w-full py-4 border-t text-center text-sm text-muted-foreground">
+        © 2025 Sobak.ai Palm Reading
+      </footer>
     </div>
   );
 }
