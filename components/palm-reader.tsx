@@ -18,7 +18,6 @@ import "@tensorflow/tfjs-backend-webgl";
 import {
   getUserMedia as getMediaPolyfill,
   getBrowserInfo,
-  getCameraConstraints,
   getUserFriendlyErrorMessage,
 } from "@/lib/camera-polyfill";
 
@@ -722,7 +721,7 @@ export default function PalmReader() {
     startCamera();
   }, [startCamera]);
 
-  // 초기화 로직 변경
+  // App initialization
   useEffect(() => {
     const initializeApp = async () => {
       try {
@@ -780,14 +779,23 @@ export default function PalmReader() {
     };
 
     initializeApp();
+  }, []);
+
+  // Separate cleanup effect
+  useEffect(() => {
+    // Store the ref value during effect execution
+    const currentVideoRef = videoRef.current;
 
     return () => {
       // 언마운트 시 현재 비디오 스트림 정리
-      const currentVideo = videoRef.current;
-      if (currentVideo && currentVideo.srcObject) {
-        const stream = currentVideo.srcObject as MediaStream;
-        const tracks = stream.getTracks();
-        tracks.forEach((track) => track.stop());
+      if (currentVideoRef && currentVideoRef.srcObject) {
+        try {
+          const stream = currentVideoRef.srcObject as MediaStream;
+          const tracks = stream.getTracks();
+          tracks.forEach((track) => track.stop());
+        } catch (err) {
+          console.warn("비디오 스트림 정리 중 오류:", err);
+        }
       }
       setIsStreamActive(false);
 
