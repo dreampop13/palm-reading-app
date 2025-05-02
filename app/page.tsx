@@ -8,7 +8,7 @@ export default function Home() {
       <header className="mb-6 text-center py-4">
         <h1 className="text-2xl font-bold">손금 (Palm Reading)</h1>
         <p className="text-muted-foreground mt-2">
-          당신의 손바닥을 카메라에 비추면 AI가 손금을 분석해 드립니다
+          손바닥을 카메라에 비추면 AI가 손금을 분석해 드립니다
         </p>
       </header>
 

@@ -313,6 +313,9 @@ export default function PalmReader() {
           const constraints = getCameraConstraints();
           console.log("카메라 요청 설정:", JSON.stringify(constraints));
 
+          // 사용자에게 카메라 접근 시도 중임을 알림
+          toast.info("카메라 접근 권한을 요청 중입니다...");
+
           // 호환성을 고려한 getUserMedia 호출
           const stream = await userMediaFunc(constraints);
           console.log("카메라 스트림 획득 성공");
@@ -325,9 +328,20 @@ export default function PalmReader() {
             videoRef.current.setAttribute("muted", "true");
             videoRef.current.setAttribute("autoplay", "true");
 
+            // 추가 디버깅 로그
+            console.log("videoRef 설정 완료:", {
+              width: videoRef.current.videoWidth,
+              height: videoRef.current.videoHeight,
+              hasVideoTracks: stream.getVideoTracks().length > 0,
+              readyState: videoRef.current.readyState,
+            });
+
             videoRef.current.onloadedmetadata = () => {
+              console.log("비디오 메타데이터 로드됨, 재생 시도...");
+
               if (videoRef.current) {
-                console.log("비디오 메타데이터 로드됨, 재생 시도...");
+                // iOS Safari에서 추가 처리
+                videoRef.current.muted = true;
                 videoRef.current
                   .play()
                   .then(() => {
@@ -339,16 +353,77 @@ export default function PalmReader() {
                   })
                   .catch((err) => {
                     console.error("비디오 재생 실패:", err);
-                    setErrorMessage(getUserFriendlyErrorMessage(err));
-                    setIsCameraSupported(false);
+
+                    // 자동 재생 정책 오류 처리
+                    if (
+                      err.name === "NotAllowedError" ||
+                      err.name === "AbortError"
+                    ) {
+                      toast.error(
+                        "브라우저 자동 재생 정책으로 인해 카메라를 시작할 수 없습니다. 화면을 터치해주세요."
+                      );
+
+                      // 사용자 상호작용 요청 UI 표시
+                      const startVideoOnInteraction = () => {
+                        if (videoRef.current) {
+                          videoRef.current
+                            .play()
+                            .then(() => {
+                              console.log(
+                                "사용자 상호작용으로 비디오 재생 성공"
+                              );
+                              setIsStreamActive(true);
+                              requestAnimationFrame(detectAndCapture);
+                              document.removeEventListener(
+                                "click",
+                                startVideoOnInteraction
+                              );
+                            })
+                            .catch((e) => {
+                              console.error("상호작용 후에도 재생 실패:", e);
+                              setErrorMessage(getUserFriendlyErrorMessage(e));
+                              setIsCameraSupported(false);
+                            });
+                        }
+                      };
+
+                      document.addEventListener(
+                        "click",
+                        startVideoOnInteraction
+                      );
+                    } else {
+                      setErrorMessage(getUserFriendlyErrorMessage(err));
+                      setIsCameraSupported(false);
+                    }
                   });
               }
+            };
+
+            // 추가 오류 핸들링
+            videoRef.current.onerror = (e) => {
+              console.error("비디오 요소 오류:", e);
+              toast.error("카메라 스트림 처리 중 오류가 발생했습니다");
             };
           }
         } catch (err) {
           console.error("카메라 액세스 오류:", err);
-          setErrorMessage(getUserFriendlyErrorMessage(err));
-          toast.error(getUserFriendlyErrorMessage(err));
+
+          // 사용자가 권한을 거부한 경우
+          if (
+            err &&
+            typeof err === "object" &&
+            "name" in err &&
+            (err.name === "NotAllowedError" ||
+              err.name === "PermissionDeniedError")
+          ) {
+            toast.error(
+              "카메라 접근 권한이 거부되었습니다. 브라우저 설정에서 카메라 권한을 허용해주세요."
+            );
+          } else {
+            setErrorMessage(getUserFriendlyErrorMessage(err));
+            toast.error(getUserFriendlyErrorMessage(err));
+          }
+
           setIsCameraSupported(false);
         }
       }
