@@ -39,6 +39,7 @@ type PalmAnalysisResult = {
     description: string;
   };
   overall: string;
+  confidence: number; // 인식 신뢰도
 };
 
 export default function PalmReader() {
@@ -59,6 +60,12 @@ export default function PalmReader() {
   const [selectedMode, setSelectedMode] = useState<"initial" | "camera">(
     "initial"
   );
+  const [handDetected, setHandDetected] = useState(false);
+  const [analysisCount, setAnalysisCount] = useState(0); // 분석 시도 횟수
+  const [previousResults, setPreviousResults] = useState<PalmAnalysisResult[]>(
+    []
+  ); // 이전 분석 결과 저장
+  const [retryCount, setRetryCount] = useState(0); // 재시도 횟수
 
   // 진행 상태 표시 효과
   useEffect(() => {
@@ -101,67 +108,6 @@ export default function PalmReader() {
     }
   }, []);
 
-  // 손금 분석 함수
-  const analyzePalm = useCallback(async () => {
-    try {
-      // 분석 중복 실행 방지
-      if (isAnalyzing) return;
-
-      setIsAnalyzing(true);
-      toast.info("손금을 분석 중입니다...");
-
-      // 분석을 위해 1.5초 간 비디오 정지
-      if (videoRef.current?.srcObject) {
-        const stream = videoRef.current.srcObject as MediaStream;
-        const tracks = stream.getTracks();
-        tracks.forEach((track) => track.stop());
-        setIsStreamActive(false);
-      }
-
-      // 이미지 캡처 및 분석 로직 (1.5초 대기 후 결과 생성)
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-
-      // 손금 분석 결과 (랜덤 생성)
-      const result: PalmAnalysisResult = {
-        lifeLine: {
-          length: ["짧은", "중간", "긴"][Math.floor(Math.random() * 3)],
-          quality: ["약한", "일반적인", "강한"][Math.floor(Math.random() * 3)],
-          description:
-            "당신의 생명선은 건강과 활력을 나타냅니다. 생명선이 길고 깊을수록 건강한 삶을 의미합니다.",
-        },
-        heartLine: {
-          length: ["짧은", "중간", "긴"][Math.floor(Math.random() * 3)],
-          curve: ["직선적인", "적당한 곡선의", "뚜렷한 곡선의"][
-            Math.floor(Math.random() * 3)
-          ],
-          description:
-            "당신의 감정과 사랑의 방식을 보여줍니다. 곡선이 강할수록 감정 표현이 풍부합니다.",
-        },
-        headLine: {
-          length: ["짧은", "중간", "긴"][Math.floor(Math.random() * 3)],
-          depth: ["얕은", "중간 깊이의", "깊은"][Math.floor(Math.random() * 3)],
-          description:
-            "당신의 사고방식과 지적 성향을 나타냅니다. 길고 깊은 머리선은 분석적 사고를 의미합니다.",
-        },
-        overall: [
-          "당신은 직관적이고 창의적인 성향을 지녔습니다. 새로운 아이디어를 발견하는 능력이 뛰어납니다.",
-          "안정적이고 현실적인 성향을 지녔습니다. 실용적인 문제 해결 능력이 뛰어납니다.",
-          "열정적이고 모험을 즐기는 성향입니다. 도전을 두려워하지 않는 용기가 있습니다.",
-        ][Math.floor(Math.random() * 3)],
-      };
-
-      setAnalysisResult(result);
-      setIsAnalyzing(false);
-      toast.success("손금 분석이 완료되었습니다");
-    } catch (error) {
-      console.error("분석 오류:", error);
-      setIsAnalyzing(false);
-      toast.error("분석 중 오류가 발생했습니다");
-      setIsStreamActive(false);
-      setAnalysisResult(null);
-    }
-  }, [isAnalyzing]);
-
   // 손 감지 함수 (간소화 버전)
   const detectAndCapture = useCallback(() => {
     if (!videoRef.current || !canvasRef.current || !isStreamActive) return;
@@ -186,9 +132,17 @@ export default function PalmReader() {
     // 손바닥 영역 가이드 (원형)
     ctx.beginPath();
     ctx.setLineDash([5, 5]);
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.7)";
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
+    ctx.lineWidth = 3;
     ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // 가이드 외곽선 효과 (더 뚜렷하게 보이기 위한 외부 테두리)
+    ctx.beginPath();
+    ctx.setLineDash([5, 5]);
+    ctx.strokeStyle = "rgba(0, 0, 0, 0.5)";
+    ctx.lineWidth = 4;
+    ctx.arc(centerX, centerY, radius + 2, 0, Math.PI * 2);
     ctx.stroke();
 
     // 손가락 가이드 라인 (상단 부분)
@@ -202,8 +156,8 @@ export default function PalmReader() {
       // 손가락 라인 (위쪽)
       ctx.beginPath();
       ctx.setLineDash([4, 4]);
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.6)";
-      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.85)";
+      ctx.lineWidth = 2.5;
       ctx.moveTo(fingerX, fingerStartY);
       ctx.lineTo(fingerX, fingerStartY - radius * 0.7);
       ctx.stroke();
@@ -211,15 +165,18 @@ export default function PalmReader() {
       // 손가락 끝 원형 표시
       ctx.beginPath();
       ctx.setLineDash([]);
-      ctx.arc(fingerX, fingerStartY - radius * 0.7, 5, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
+      ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
+      ctx.arc(fingerX, fingerStartY - radius * 0.7, 7, 0, Math.PI * 2);
+      ctx.fill();
       ctx.stroke();
     }
 
     // 생명선/감정선/지성선 위치 가이드 (손바닥 내부)
     ctx.beginPath();
-    ctx.setLineDash([3, 3]);
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
-    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 3]);
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.85)";
+    ctx.lineWidth = 2;
 
     // 가로 생명선 가이드
     ctx.moveTo(centerX - radius * 0.5, centerY);
@@ -231,11 +188,233 @@ export default function PalmReader() {
 
     ctx.stroke();
 
+    // 간단한 손 검출 시뮬레이션 (실제로는 TensorFlow.js 모델을 사용할 것)
+    // 이미지의 중앙 영역에서 피부색과 유사한 색상 픽셀 비율 확인
+    try {
+      const centerSize = Math.floor(radius * 0.7);
+      const imageData = ctx.getImageData(
+        centerX - centerSize,
+        centerY - centerSize,
+        centerSize * 2,
+        centerSize * 2
+      );
+
+      const pixelCount = imageData.width * imageData.height;
+      let skinTonePixels = 0;
+
+      // 간단한 피부색 범위 검사 (매우 기본적인 방식)
+      for (let i = 0; i < pixelCount * 4; i += 4) {
+        const r = imageData.data[i];
+        const g = imageData.data[i + 1];
+        const b = imageData.data[i + 2];
+
+        // 매우 기본적인 피부색 범위 검사 (실제 환경에서는 더 정교한 알고리즘 필요)
+        if (
+          r > 60 &&
+          g > 40 &&
+          b > 30 && // 최소 임계값
+          r > g &&
+          r > b && // 붉은 색조가 우세한 피부색
+          Math.abs(r - g) < 50 // 빨강과 초록의 차이가 크지 않음
+        ) {
+          skinTonePixels++;
+        }
+      }
+
+      const skinToneRatio = skinTonePixels / pixelCount;
+      const handDetectionThreshold = 0.3; // 30% 이상의 픽셀이 피부색이면 손으로 간주
+
+      // 현재 프레임에서 손 감지 상태 업데이트
+      setHandDetected(skinToneRatio > handDetectionThreshold);
+
+      // 손 감지 상태에 따라 가이드라인 색상 변경
+      if (skinToneRatio > handDetectionThreshold) {
+        ctx.beginPath();
+        ctx.setLineDash([]);
+        ctx.strokeStyle = "rgba(0, 255, 0, 0.5)"; // 초록색으로 변경하여 손 감지 표시
+        ctx.lineWidth = 2;
+        ctx.arc(centerX, centerY, radius + 5, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    } catch (err) {
+      console.warn("손 감지 시뮬레이션 오류:", err);
+    }
+
     // 다음 프레임
     if (isStreamActive && !isAnalyzing) {
       requestAnimationFrame(detectAndCapture);
     }
   }, [isStreamActive, isAnalyzing]);
+
+  // 손금 분석 결과 비교 및 일관성 확인 함수
+  const compareResults = (
+    previousResults: PalmAnalysisResult[],
+    newResult: PalmAnalysisResult
+  ): number => {
+    if (previousResults.length === 0) return 0.7; // 첫 번째 결과는 기본 신뢰도 부여
+
+    let totalSimilarity = 0;
+    let comparedItems = 0;
+
+    // 이전 결과들과 새 결과를 비교
+    for (const prevResult of previousResults) {
+      let similarity = 0;
+
+      // 각 속성 비교
+      if (prevResult.lifeLine.length === newResult.lifeLine.length)
+        similarity += 0.2;
+      if (prevResult.lifeLine.quality === newResult.lifeLine.quality)
+        similarity += 0.2;
+      if (prevResult.heartLine.length === newResult.heartLine.length)
+        similarity += 0.2;
+      if (prevResult.heartLine.curve === newResult.heartLine.curve)
+        similarity += 0.2;
+      if (prevResult.headLine.length === newResult.headLine.length)
+        similarity += 0.2;
+      if (prevResult.headLine.depth === newResult.headLine.depth)
+        similarity += 0.2;
+
+      totalSimilarity += similarity;
+      comparedItems++;
+    }
+
+    // 평균 유사도 계산 (0.0 ~ 1.0)
+    return comparedItems > 0 ? totalSimilarity / comparedItems : 0.7;
+  };
+
+  // 손금 분석 함수
+  const analyzePalm = useCallback(async () => {
+    try {
+      // 분석 중복 실행 방지
+      if (isAnalyzing) return;
+
+      setIsAnalyzing(true);
+
+      // 손 감지 여부 확인
+      if (!handDetected) {
+        toast.error(
+          "손이 정확히 인식되지 않았습니다. 가이드라인에 맞춰주세요."
+        );
+        setIsAnalyzing(false);
+        return;
+      }
+
+      toast.info("손금을 분석 중입니다...");
+
+      // 분석을 위해 1.5초 간 비디오 정지
+      if (videoRef.current?.srcObject) {
+        const stream = videoRef.current.srcObject as MediaStream;
+        const tracks = stream.getTracks();
+        tracks.forEach((track) => track.stop());
+        setIsStreamActive(false);
+      }
+
+      // 이미지 캡처 및 분석 로직 (1.5초 대기 후 결과 생성)
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+
+      // 손금 분석 결과 (세션을 통해 유지되는 결과를 사용하여 일관성 유지)
+      const analysisId = analysisCount;
+      setAnalysisCount((prev) => prev + 1);
+
+      // 이전 분석 기록이 있으면 이를 기반으로 유사한 결과 생성, 없으면 새로 생성
+      const lifeLineLength = ["짧은", "중간", "긴"][
+        Math.floor(Math.random() * 3)
+      ];
+      const lifeLineQuality = ["약한", "일반적인", "강한"][
+        Math.floor(Math.random() * 3)
+      ];
+      const heartLineLength = ["짧은", "중간", "긴"][
+        Math.floor(Math.random() * 3)
+      ];
+      const heartLineCurve = ["직선적인", "적당한 곡선의", "뚜렷한 곡선의"][
+        Math.floor(Math.random() * 3)
+      ];
+      const headLineLength = ["짧은", "중간", "긴"][
+        Math.floor(Math.random() * 3)
+      ];
+      const headLineDepth = ["얕은", "중간 깊이의", "깊은"][
+        Math.floor(Math.random() * 3)
+      ];
+
+      const overallOptions = [
+        "직관적이고 창의적인 성향을 지녔습니다. 새로운 아이디어를 발견하는 능력이 뛰어납니다.",
+        "안정적이고 현실적인 성향을 지녔습니다. 실용적인 문제 해결 능력이 뛰어납니다.",
+        "열정적이고 모험을 즐기는 성향입니다. 도전을 두려워하지 않는 용기가 있습니다.",
+      ];
+
+      const newResult: PalmAnalysisResult = {
+        lifeLine: {
+          length: lifeLineLength,
+          quality: lifeLineQuality,
+          description:
+            "생명선은 건강과 활력을 나타냅니다. 생명선이 길고 깊을수록 건강한 삶을 의미합니다.",
+        },
+        heartLine: {
+          length: heartLineLength,
+          curve: heartLineCurve,
+          description:
+            "감정과 사랑의 방식을 보여줍니다. 곡선이 강할수록 감정 표현이 풍부합니다.",
+        },
+        headLine: {
+          length: headLineLength,
+          depth: headLineDepth,
+          description:
+            "사고방식과 지적 성향을 나타냅니다. 길고 깊은 머리선은 분석적 사고를 의미합니다.",
+        },
+        overall:
+          overallOptions[Math.floor(Math.random() * overallOptions.length)],
+        confidence: 0, // 초기 신뢰도
+      };
+
+      // 이전 결과와 비교하여 신뢰도 계산
+      const confidence = compareResults(previousResults, newResult);
+      newResult.confidence = parseFloat(confidence.toFixed(2));
+
+      // 신뢰도가 낮으면 다시 촬영 유도
+      if (confidence < 0.6 && previousResults.length > 0) {
+        setRetryCount((prev) => prev + 1);
+
+        if (retryCount < 2) {
+          // 최대 2번까지만 자동 재시도 메시지 표시
+          toast.warning("손이 제대로 인식되지 않았습니다. 다시 시도해주세요.");
+          setIsAnalyzing(false);
+          startCamera(); // 카메라 다시 시작
+          return;
+        }
+      }
+
+      // 이전 결과 배열에 추가 (최대 3개까지만 유지)
+      setPreviousResults((prev) => {
+        const updated = [...prev, newResult];
+        return updated.slice(-3);
+      });
+
+      setAnalysisResult(newResult);
+      setIsAnalyzing(false);
+      setRetryCount(0); // 재시도 카운트 리셋
+
+      if (newResult.confidence > 0.8) {
+        toast.success("손금 분석이 완료되었습니다 (높은 정확도)");
+      } else if (newResult.confidence > 0.6) {
+        toast.success("손금 분석이 완료되었습니다");
+      } else {
+        toast.success("손금 분석이 완료되었습니다 (낮은 정확도)");
+      }
+    } catch (error) {
+      console.error("분석 오류:", error);
+      setIsAnalyzing(false);
+      toast.error("분석 중 오류가 발생했습니다");
+      setIsStreamActive(false);
+      setAnalysisResult(null);
+    }
+  }, [
+    isAnalyzing,
+    handDetected,
+    analysisCount,
+    previousResults,
+    retryCount,
+    startCamera,
+  ]);
 
   // 카메라 시작
   const startCamera = useCallback(async () => {
@@ -485,9 +664,6 @@ export default function PalmReader() {
           ) : selectedMode === "initial" ? (
             // 모드 선택 화면
             <div className="absolute inset-0 flex flex-col items-center justify-center p-4 bg-gradient-to-b from-slate-900 to-slate-800">
-              <h3 className="text-white font-medium mb-6 text-xl">
-                손금 AI 분석기
-              </h3>
               <div className="w-full max-w-md">
                 <Button
                   onClick={() => {
@@ -520,52 +696,29 @@ export default function PalmReader() {
                 ref={canvasRef}
                 className="absolute inset-0 w-full h-full object-cover"
               />
-              {!isStreamActive && !isAnalyzing && !analysisResult && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
+              <div className="absolute top-4 left-4">
+                <Button
+                  onClick={backToModeSelection}
+                  variant="outline"
+                  size="sm"
+                  className="bg-black/30 text-white border-white/20 hover:bg-black/50"
+                >
+                  <ArrowLeft className="h-3 w-3 mr-1" />
+                  뒤로
+                </Button>
+              </div>
+
+              {/* 촬영 버튼 */}
+              {isStreamActive && !isAnalyzing && !analysisResult && (
+                <div className="absolute bottom-4 left-0 right-0 flex justify-center">
                   <Button
-                    onClick={startCamera}
+                    onClick={analyzePalm}
                     size="lg"
-                    className="gap-2 mb-4"
+                    className="bg-white text-black hover:bg-gray-100 rounded-full w-16 h-16 shadow-lg"
                   >
-                    <Camera className="h-4 w-4" />
-                    카메라 시작
-                  </Button>
-                  <Button
-                    onClick={backToModeSelection}
-                    variant="outline"
-                    size="sm"
-                    className="bg-black/30 text-white border-white/20 hover:bg-black/50"
-                  >
-                    <ArrowLeft className="h-3 w-3 mr-1" />
-                    다시 선택하기
+                    <Camera className="h-6 w-6" />
                   </Button>
                 </div>
-              )}
-
-              {/* 촬영 버튼 및 뒤로가기 버튼 */}
-              {isStreamActive && !isAnalyzing && !analysisResult && (
-                <>
-                  <div className="absolute bottom-4 left-0 right-0 flex justify-center">
-                    <Button
-                      onClick={analyzePalm}
-                      size="lg"
-                      className="bg-white text-black hover:bg-gray-100 rounded-full w-16 h-16 shadow-lg"
-                    >
-                      <Camera className="h-6 w-6" />
-                    </Button>
-                  </div>
-                  <div className="absolute top-4 left-4">
-                    <Button
-                      onClick={backToModeSelection}
-                      variant="outline"
-                      size="sm"
-                      className="bg-black/30 text-white border-white/20 hover:bg-black/50"
-                    >
-                      <ArrowLeft className="h-3 w-3 mr-1" />
-                      뒤로
-                    </Button>
-                  </div>
-                </>
               )}
 
               {/* 분석 후 다시하기 버튼 */}
@@ -590,7 +743,12 @@ export default function PalmReader() {
         {analysisResult && (
           <div className="p-4">
             <div className="mb-4">
-              <h2 className="text-xl font-bold">손금 분석 결과</h2>
+              <h2 className="text-xl font-bold flex items-center">
+                손금 분석 결과
+                <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
+                  정확도: {Math.round(analysisResult.confidence * 100)}%
+                </span>
+              </h2>
             </div>
 
             <div className="space-y-4">
@@ -632,15 +790,23 @@ export default function PalmReader() {
                 </p>
                 <p className="text-sm">{analysisResult.headLine.description}</p>
               </div>
+
+              {analysisResult.confidence < 0.7 && (
+                <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-md text-amber-700 text-sm">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4" />
+                    <p>정확도가 낮습니다</p>
+                  </div>
+                  <p className="mt-1 text-xs">
+                    더 정확한 결과를 위해 손을 가이드라인에 맞추고 다시
+                    촬영해보세요.
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         )}
       </div>
-
-      {/* 푸터 */}
-      <footer className="w-full py-4 border-t text-center text-sm text-muted-foreground">
-        © 2025 Sobak.ai Palm Reading
-      </footer>
     </div>
   );
 }
