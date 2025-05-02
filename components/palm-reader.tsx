@@ -61,7 +61,6 @@ export default function PalmReader() {
     "initial"
   );
   const [handDetected, setHandDetected] = useState(false);
-  const [analysisCount, setAnalysisCount] = useState(0); // 분석 시도 횟수
   const [previousResults, setPreviousResults] = useState<PalmAnalysisResult[]>(
     []
   ); // 이전 분석 결과 저장
@@ -391,9 +390,6 @@ export default function PalmReader() {
       // 이미지 캡처 및 분석 로직 (1.5초 대기 후 결과 생성)
       await new Promise((resolve) => setTimeout(resolve, 1500));
 
-      // 손금 분석 결과 (세션을 통해 유지되는 결과를 사용하여 일관성 유지)
-      setAnalysisCount((prev) => prev + 1);
-
       // 이전 분석 기록이 있으면 이를 기반으로 유사한 결과 생성, 없으면 새로 생성
       const lifeLineLength = ["짧은", "중간", "긴"][
         Math.floor(Math.random() * 3)
@@ -568,12 +564,13 @@ export default function PalmReader() {
 
     return () => {
       // 언마운트 시 현재 비디오 스트림 정리
-      if (videoRef.current && videoRef.current.srcObject) {
-        const stream = videoRef.current.srcObject as MediaStream;
+      const currentVideo = videoRef.current;
+      if (currentVideo && currentVideo.srcObject) {
+        const stream = currentVideo.srcObject as MediaStream;
         const tracks = stream.getTracks();
         tracks.forEach((track) => track.stop());
-        setIsStreamActive(false);
       }
+      setIsStreamActive(false);
 
       // TensorFlow 리소스 정리
       try {
