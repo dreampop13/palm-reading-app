@@ -108,24 +108,32 @@ export default function PalmReader() {
 
   // 손 감지 함수 (간소화 버전)
   const detectAndCapture = useCallback(() => {
-    if (!videoRef.current || !canvasRef.current || !isStreamActive) return;
+    if (!videoRef.current || !canvasRef.current) return;
 
     const ctx = canvasRef.current.getContext("2d");
     if (!ctx) return;
 
     // 캔버스 초기화
-    const videoWidth = videoRef.current.videoWidth;
-    const videoHeight = videoRef.current.videoHeight;
-    canvasRef.current.width = videoWidth;
-    canvasRef.current.height = videoHeight;
+    const videoWidth = videoRef.current.videoWidth || canvasRef.current.width;
+    const videoHeight =
+      videoRef.current.videoHeight || canvasRef.current.height;
 
-    // 비디오 프레임 캡처
-    ctx.drawImage(videoRef.current, 0, 0, videoWidth, videoHeight);
+    // 비디오 크기가 0이면 기본값 설정
+    const width = videoWidth || 640;
+    const height = videoHeight || 480;
+
+    canvasRef.current.width = width;
+    canvasRef.current.height = height;
+
+    // 비디오 프레임 캡처 (비디오가 준비되었을 때만)
+    if (videoRef.current.readyState >= 2) {
+      ctx.drawImage(videoRef.current, 0, 0, width, height);
+    }
 
     // 가이드라인 그리기
-    const centerX = videoWidth / 2;
-    const centerY = videoHeight / 2;
-    const radius = Math.min(videoWidth, videoHeight) * 0.35;
+    const centerX = width / 2;
+    const centerY = height / 2;
+    const radius = Math.min(width, height) * 0.35;
 
     // 손바닥 영역 가이드 (원형)
     ctx.beginPath();
@@ -138,9 +146,17 @@ export default function PalmReader() {
     // 가이드 외곽선 효과 (더 뚜렷하게 보이기 위한 외부 테두리)
     ctx.beginPath();
     ctx.setLineDash([5, 5]);
-    ctx.strokeStyle = "rgba(0, 0, 0, 0.5)";
-    ctx.lineWidth = 4;
+    ctx.strokeStyle = "rgba(0, 0, 0, 0.7)";
+    ctx.lineWidth = 5;
     ctx.arc(centerX, centerY, radius + 2, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // 내부에 하나 더 그려서 시인성 높이기
+    ctx.beginPath();
+    ctx.setLineDash([5, 5]);
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
+    ctx.lineWidth = 2;
+    ctx.arc(centerX, centerY, radius - 5, 0, Math.PI * 2);
     ctx.stroke();
 
     // 손가락 가이드 라인 (상단 부분)
@@ -154,17 +170,26 @@ export default function PalmReader() {
       // 손가락 라인 (위쪽)
       ctx.beginPath();
       ctx.setLineDash([4, 4]);
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.85)";
-      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
+      ctx.lineWidth = 3;
       ctx.moveTo(fingerX, fingerStartY);
       ctx.lineTo(fingerX, fingerStartY - radius * 0.7);
+      ctx.stroke();
+
+      // 손가락 끝 원형 표시 (그림자 효과)
+      ctx.beginPath();
+      ctx.setLineDash([]);
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.7)";
+      ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
+      ctx.arc(fingerX, fingerStartY - radius * 0.7, 9, 0, Math.PI * 2);
+      ctx.fill();
       ctx.stroke();
 
       // 손가락 끝 원형 표시
       ctx.beginPath();
       ctx.setLineDash([]);
       ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
-      ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
+      ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
       ctx.arc(fingerX, fingerStartY - radius * 0.7, 7, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
@@ -173,8 +198,8 @@ export default function PalmReader() {
     // 생명선/감정선/지성선 위치 가이드 (손바닥 내부)
     ctx.beginPath();
     ctx.setLineDash([4, 3]);
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.85)";
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
+    ctx.lineWidth = 3;
 
     // 가로 생명선 가이드
     ctx.moveTo(centerX - radius * 0.5, centerY);
@@ -227,22 +252,35 @@ export default function PalmReader() {
 
       // 손 감지 상태에 따라 가이드라인 색상 변경
       if (skinToneRatio > handDetectionThreshold) {
+        // 손이 감지되면 녹색 테두리로 강조
         ctx.beginPath();
         ctx.setLineDash([]);
-        ctx.strokeStyle = "rgba(0, 255, 0, 0.5)"; // 초록색으로 변경하여 손 감지 표시
-        ctx.lineWidth = 2;
+        ctx.strokeStyle = "rgba(0, 255, 0, 0.7)"; // 좀더 진한 녹색으로 변경
+        ctx.lineWidth = 4;
         ctx.arc(centerX, centerY, radius + 5, 0, Math.PI * 2);
         ctx.stroke();
+
+        // 추가 효과: 내부에 반투명 녹색 원 추가
+        ctx.beginPath();
+        ctx.fillStyle = "rgba(0, 255, 0, 0.1)";
+        ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+        ctx.fill();
+
+        // "손 감지됨" 메시지 표시
+        ctx.font = "bold 16px Arial";
+        ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+        ctx.textAlign = "center";
+        ctx.fillText("손 감지됨", centerX, centerY + radius + 25);
       }
     } catch (err) {
       console.warn("손 감지 시뮬레이션 오류:", err);
     }
 
-    // 다음 프레임
-    if (isStreamActive && !isAnalyzing) {
+    // 다음 프레임 - 카메라 모드일 때는 항상 애니메이션 진행
+    if (selectedMode === "camera" && !isAnalyzing) {
       requestAnimationFrame(detectAndCapture);
     }
-  }, [isStreamActive, isAnalyzing]);
+  }, [isStreamActive, isAnalyzing, selectedMode]);
 
   // 손금 분석 결과 비교 및 일관성 확인 함수
   const compareResults = (
@@ -889,17 +927,20 @@ export default function PalmReader() {
         // 그렇지 않으면 카메라 시작
         startCamera();
       }
+
+      // 가이드라인 표시를 위해 detectAndCapture 호출
+      const animationId = requestAnimationFrame(detectAndCapture);
+
+      return () => {
+        cancelAnimationFrame(animationId);
+      };
     }
-  }, [selectedMode, startCamera]);
+  }, [selectedMode, startCamera, detectAndCapture]);
 
   return (
     <div className="flex flex-col w-full min-h-screen">
       <div className="flex-grow">
-        <div
-          className={`relative w-full aspect-[3/4] ${
-            selectedMode === "camera" ? "bg-transparent" : "bg-black"
-          }`}
-        >
+        <div className="relative w-full aspect-[3/4] bg-black overflow-hidden">
           {!isCameraSupported && selectedMode === "camera" ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center">
               <AlertCircle className="h-10 w-10 text-red-500 mb-2" />
@@ -990,8 +1031,8 @@ export default function PalmReader() {
             // 카메라 모드
             <>
               <div
-                className="absolute inset-0 w-full h-full"
-                style={{ backgroundColor: "transparent" }}
+                className="absolute inset-0 w-full h-full bg-black"
+                style={{ overflow: "hidden" }}
                 onClick={() => {
                   if (!isStreamActive && !isAnalyzing) {
                     console.log("비디오 영역 탭 - 카메라 재시작 시도");
@@ -1001,22 +1042,26 @@ export default function PalmReader() {
               >
                 <video
                   ref={videoRef}
-                  className="absolute inset-0 w-full h-full object-cover z-10"
+                  className="absolute inset-0 w-full h-full object-cover z-[10]"
                   playsInline
                   muted
                   autoPlay
                   style={{
-                    backgroundColor: "transparent",
+                    backgroundColor: "black",
                     opacity: 1,
                   }}
                 />
                 <canvas
                   ref={canvasRef}
-                  className="absolute inset-0 w-full h-full object-cover z-20"
+                  className="absolute inset-0 w-full h-full object-cover z-[25]"
+                  style={{
+                    pointerEvents: "none",
+                    mixBlendMode: "lighten", // 가이드라인이 더 잘 보이도록 혼합 모드 추가
+                  }}
                 />
               </div>
 
-              <div className="absolute top-4 left-4">
+              <div className="absolute top-4 left-4 z-[40]">
                 <Button
                   onClick={backToModeSelection}
                   variant="outline"
@@ -1028,9 +1073,9 @@ export default function PalmReader() {
                 </Button>
               </div>
 
-              {/* 촬영 버튼 */}
-              {selectedMode === "camera" && !isAnalyzing && !analysisResult && (
-                <div className="absolute bottom-4 left-0 right-0 flex justify-center">
+              {/* 촬영 버튼 - 항상 표시 */}
+              {selectedMode === "camera" && !analysisResult && (
+                <div className="absolute bottom-4 left-0 right-0 flex justify-center z-[40]">
                   <Button
                     onClick={() => {
                       console.log("촬영 버튼 클릭됨");
@@ -1038,6 +1083,7 @@ export default function PalmReader() {
                     }}
                     size="lg"
                     className="bg-white text-black hover:bg-gray-100 rounded-full w-16 h-16 shadow-lg"
+                    disabled={isAnalyzing}
                   >
                     <Camera className="h-6 w-6" />
                   </Button>
@@ -1046,7 +1092,7 @@ export default function PalmReader() {
 
               {/* 분석 후 다시하기 버튼 */}
               {analysisResult && (
-                <div className="absolute bottom-4 right-4">
+                <div className="absolute bottom-4 right-4 z-[40]">
                   <Button
                     variant="outline"
                     size="sm"
