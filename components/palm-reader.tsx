@@ -282,6 +282,85 @@ export default function PalmReader() {
     return comparedItems > 0 ? totalSimilarity / comparedItems : 0.7;
   };
 
+  // 카메라 시작
+  const startCamera = useCallback(async () => {
+    try {
+      console.log("카메라 시작 시도...");
+
+      // 브라우저 호환성을 위한 getUserMedia 함수 가져오기
+      const userMediaFunc = getMediaPolyfill();
+
+      // getUserMedia 함수가 존재하지 않으면 오류
+      if (!userMediaFunc) {
+        console.error("이 브라우저는 카메라 API를 지원하지 않습니다.");
+        setErrorMessage(
+          "이 브라우저는 카메라 API를 지원하지 않습니다. HTTPS 환경에서 최신 브라우저(Chrome, Safari 등)를 사용해 주세요."
+        );
+        toast.error("이 브라우저에서는 카메라를 사용할 수 없습니다.");
+        setIsCameraSupported(false);
+        return;
+      }
+
+      if (videoRef.current) {
+        // 이미 활성화된 스트림이 있으면 중단
+        if (videoRef.current.srcObject) {
+          const stream = videoRef.current.srcObject as MediaStream;
+          const tracks = stream.getTracks();
+          tracks.forEach((track) => track.stop());
+        }
+
+        try {
+          // 환경에 맞는 제약 조건 가져오기
+          const constraints = getCameraConstraints();
+          console.log("카메라 요청 설정:", JSON.stringify(constraints));
+
+          // 호환성을 고려한 getUserMedia 호출
+          const stream = await userMediaFunc(constraints);
+          console.log("카메라 스트림 획득 성공");
+
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+
+            // iOS Safari에서 autoplay 정책 대응
+            videoRef.current.setAttribute("playsinline", "true");
+            videoRef.current.setAttribute("muted", "true");
+            videoRef.current.setAttribute("autoplay", "true");
+
+            videoRef.current.onloadedmetadata = () => {
+              if (videoRef.current) {
+                console.log("비디오 메타데이터 로드됨, 재생 시도...");
+                videoRef.current
+                  .play()
+                  .then(() => {
+                    console.log("비디오 재생 성공");
+                    setIsStreamActive(true);
+                    setAnalysisResult(null);
+                    // 간소화된 화면 표시 함수 사용
+                    requestAnimationFrame(detectAndCapture);
+                  })
+                  .catch((err) => {
+                    console.error("비디오 재생 실패:", err);
+                    setErrorMessage(getUserFriendlyErrorMessage(err));
+                    setIsCameraSupported(false);
+                  });
+              }
+            };
+          }
+        } catch (err) {
+          console.error("카메라 액세스 오류:", err);
+          setErrorMessage(getUserFriendlyErrorMessage(err));
+          toast.error(getUserFriendlyErrorMessage(err));
+          setIsCameraSupported(false);
+        }
+      }
+    } catch (error) {
+      console.error("카메라 접근 실패:", error);
+      setErrorMessage(getUserFriendlyErrorMessage(error));
+      toast.error("카메라에 접근할 수 없습니다.");
+      setIsCameraSupported(false);
+    }
+  }, [detectAndCapture]);
+
   // 손금 분석 함수
   const analyzePalm = useCallback(async () => {
     try {
@@ -313,7 +392,6 @@ export default function PalmReader() {
       await new Promise((resolve) => setTimeout(resolve, 1500));
 
       // 손금 분석 결과 (세션을 통해 유지되는 결과를 사용하여 일관성 유지)
-      const analysisId = analysisCount;
       setAnalysisCount((prev) => prev + 1);
 
       // 이전 분석 기록이 있으면 이를 기반으로 유사한 결과 생성, 없으면 새로 생성
@@ -407,93 +485,7 @@ export default function PalmReader() {
       setIsStreamActive(false);
       setAnalysisResult(null);
     }
-  }, [
-    isAnalyzing,
-    handDetected,
-    analysisCount,
-    previousResults,
-    retryCount,
-    startCamera,
-  ]);
-
-  // 카메라 시작
-  const startCamera = useCallback(async () => {
-    try {
-      console.log("카메라 시작 시도...");
-
-      // 브라우저 호환성을 위한 getUserMedia 함수 가져오기
-      const userMediaFunc = getMediaPolyfill();
-
-      // getUserMedia 함수가 존재하지 않으면 오류
-      if (!userMediaFunc) {
-        console.error("이 브라우저는 카메라 API를 지원하지 않습니다.");
-        setErrorMessage(
-          "이 브라우저는 카메라 API를 지원하지 않습니다. HTTPS 환경에서 최신 브라우저(Chrome, Safari 등)를 사용해 주세요."
-        );
-        toast.error("이 브라우저에서는 카메라를 사용할 수 없습니다.");
-        setIsCameraSupported(false);
-        return;
-      }
-
-      if (videoRef.current) {
-        // 이미 활성화된 스트림이 있으면 중단
-        if (videoRef.current.srcObject) {
-          const stream = videoRef.current.srcObject as MediaStream;
-          const tracks = stream.getTracks();
-          tracks.forEach((track) => track.stop());
-        }
-
-        try {
-          // 환경에 맞는 제약 조건 가져오기
-          const constraints = getCameraConstraints();
-          console.log("카메라 요청 설정:", JSON.stringify(constraints));
-
-          // 호환성을 고려한 getUserMedia 호출
-          const stream = await userMediaFunc(constraints);
-          console.log("카메라 스트림 획득 성공");
-
-          if (videoRef.current) {
-            videoRef.current.srcObject = stream;
-
-            // iOS Safari에서 autoplay 정책 대응
-            videoRef.current.setAttribute("playsinline", "true");
-            videoRef.current.setAttribute("muted", "true");
-            videoRef.current.setAttribute("autoplay", "true");
-
-            videoRef.current.onloadedmetadata = () => {
-              if (videoRef.current) {
-                console.log("비디오 메타데이터 로드됨, 재생 시도...");
-                videoRef.current
-                  .play()
-                  .then(() => {
-                    console.log("비디오 재생 성공");
-                    setIsStreamActive(true);
-                    setAnalysisResult(null);
-                    // 간소화된 화면 표시 함수 사용
-                    requestAnimationFrame(detectAndCapture);
-                  })
-                  .catch((err) => {
-                    console.error("비디오 재생 실패:", err);
-                    setErrorMessage(getUserFriendlyErrorMessage(err));
-                    setIsCameraSupported(false);
-                  });
-              }
-            };
-          }
-        } catch (err) {
-          console.error("카메라 액세스 오류:", err);
-          setErrorMessage(getUserFriendlyErrorMessage(err));
-          toast.error(getUserFriendlyErrorMessage(err));
-          setIsCameraSupported(false);
-        }
-      }
-    } catch (error) {
-      console.error("카메라 접근 실패:", error);
-      setErrorMessage(getUserFriendlyErrorMessage(error));
-      toast.error("카메라에 접근할 수 없습니다.");
-      setIsCameraSupported(false);
-    }
-  }, [detectAndCapture]);
+  }, [isAnalyzing, handDetected, previousResults, retryCount, startCamera]);
 
   // 모드 선택으로 돌아가기
   const backToModeSelection = () => {
@@ -576,9 +568,8 @@ export default function PalmReader() {
 
     return () => {
       // 언마운트 시 현재 비디오 스트림 정리
-      const currentVideo = videoRef.current;
-      if (currentVideo && currentVideo.srcObject) {
-        const stream = currentVideo.srcObject as MediaStream;
+      if (videoRef.current && videoRef.current.srcObject) {
+        const stream = videoRef.current.srcObject as MediaStream;
         const tracks = stream.getTracks();
         tracks.forEach((track) => track.stop());
         setIsStreamActive(false);
