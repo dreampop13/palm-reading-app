@@ -179,25 +179,57 @@ export default function PalmReader() {
     ctx.drawImage(videoRef.current, 0, 0, videoWidth, videoHeight);
 
     // 가이드라인 그리기
+    const centerX = videoWidth / 2;
+    const centerY = videoHeight / 2;
+    const radius = Math.min(videoWidth, videoHeight) * 0.35;
+
+    // 손바닥 영역 가이드 (원형)
     ctx.beginPath();
     ctx.setLineDash([5, 5]);
     ctx.strokeStyle = "rgba(255, 255, 255, 0.7)";
     ctx.lineWidth = 2;
-    const centerX = videoWidth / 2;
-    const centerY = videoHeight / 2;
-    const radius = Math.min(videoWidth, videoHeight) * 0.35;
     ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
     ctx.stroke();
 
-    // 가이드 텍스트
-    ctx.font = "20px Arial";
-    ctx.fillStyle = "rgba(255, 255, 255, 0.7)";
-    ctx.textAlign = "center";
-    ctx.fillText(
-      "손바닥을 가이드라인에 맞추고 촬영 버튼을 누르세요",
-      centerX,
-      centerY - radius - 20
-    );
+    // 손가락 가이드 라인 (상단 부분)
+    const fingerStartY = centerY - radius;
+    const fingerSpacing = radius / 2;
+
+    // 5개 손가락 위치 가이드 라인
+    for (let i = -2; i <= 2; i++) {
+      const fingerX = centerX + i * fingerSpacing;
+
+      // 손가락 라인 (위쪽)
+      ctx.beginPath();
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.6)";
+      ctx.lineWidth = 1.5;
+      ctx.moveTo(fingerX, fingerStartY);
+      ctx.lineTo(fingerX, fingerStartY - radius * 0.7);
+      ctx.stroke();
+
+      // 손가락 끝 원형 표시
+      ctx.beginPath();
+      ctx.setLineDash([]);
+      ctx.arc(fingerX, fingerStartY - radius * 0.7, 5, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // 생명선/감정선/지성선 위치 가이드 (손바닥 내부)
+    ctx.beginPath();
+    ctx.setLineDash([3, 3]);
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
+    ctx.lineWidth = 1.5;
+
+    // 가로 생명선 가이드
+    ctx.moveTo(centerX - radius * 0.5, centerY);
+    ctx.lineTo(centerX + radius * 0.5, centerY);
+
+    // 세로 주요 손금 가이드
+    ctx.moveTo(centerX, centerY - radius * 0.5);
+    ctx.lineTo(centerX, centerY + radius * 0.5);
+
+    ctx.stroke();
 
     // 다음 프레임
     if (isStreamActive && !isAnalyzing) {
@@ -385,7 +417,7 @@ export default function PalmReader() {
   return (
     <div className="flex flex-col w-full min-h-screen">
       <div className="flex-grow">
-        <div className="relative w-full aspect-[4/3] bg-black">
+        <div className="relative w-full aspect-[3/4] bg-black">
           {!isCameraSupported && selectedMode === "camera" ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center">
               <AlertCircle className="h-10 w-10 text-red-500 mb-2" />
@@ -453,12 +485,9 @@ export default function PalmReader() {
           ) : selectedMode === "initial" ? (
             // 모드 선택 화면
             <div className="absolute inset-0 flex flex-col items-center justify-center p-4 bg-gradient-to-b from-slate-900 to-slate-800">
-              <h3 className="text-white font-medium mb-2 text-xl">
+              <h3 className="text-white font-medium mb-6 text-xl">
                 손금 AI 분석기
               </h3>
-              <p className="text-white/70 mb-6 text-center">
-                손바닥을 카메라에 비추면 AI가 손금을 분석해 드립니다.
-              </p>
               <div className="w-full max-w-md">
                 <Button
                   onClick={() => {
@@ -538,6 +567,21 @@ export default function PalmReader() {
                   </div>
                 </>
               )}
+
+              {/* 분석 후 다시하기 버튼 */}
+              {analysisResult && (
+                <div className="absolute bottom-4 right-4">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleReset}
+                    className="bg-black/30 text-white border-white/20 hover:bg-black/50"
+                  >
+                    <RefreshCw className="h-3 w-3 mr-1" />
+                    다시 촬영
+                  </Button>
+                </div>
+              )}
             </>
           ) : null}
         </div>
@@ -545,17 +589,8 @@ export default function PalmReader() {
         {/* 분석 결과 */}
         {analysisResult && (
           <div className="p-4">
-            <div className="flex items-center justify-between mb-4">
+            <div className="mb-4">
               <h2 className="text-xl font-bold">손금 분석 결과</h2>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleReset}
-                className="gap-1"
-              >
-                <RefreshCw className="h-3 w-3" />
-                다시 시도
-              </Button>
             </div>
 
             <div className="space-y-4">
@@ -602,7 +637,7 @@ export default function PalmReader() {
         )}
       </div>
 
-      {/* 푸터 추가 */}
+      {/* 푸터 */}
       <footer className="w-full py-4 border-t text-center text-sm text-muted-foreground">
         © 2025 Sobak.ai Palm Reading
       </footer>
