@@ -64,6 +64,7 @@ export default function PalmReader() {
     []
   ); // 이전 분석 결과 저장
   const [retryCount, setRetryCount] = useState(0); // 재시도 횟수
+  const [capturedImageUrl, setCapturedImageUrl] = useState<string | null>(null);
 
   // 진행 상태 표시 효과
   useEffect(() => {
@@ -161,35 +162,6 @@ export default function PalmReader() {
     ctx.lineWidth = 2;
     ctx.arc(centerX, centerY, radius - 5, 0, Math.PI * 2);
     ctx.stroke();
-
-    // 손가락 가이드 라인 (상단 부분)
-    const fingerStartY = centerY - radius;
-    const fingerSpacing = radius / 2;
-
-    // 4개 손가락 위치 가이드 (맨 왼쪽 삭제)
-    for (let i = -1; i <= 2; i++) {
-      const fingerX = centerX + i * fingerSpacing;
-
-      // 손가락 라인 제거 (직선 없앰)
-
-      // 손가락 끝 원형 표시 (그림자 효과)
-      ctx.beginPath();
-      ctx.setLineDash([]);
-      ctx.strokeStyle = "rgba(0, 0, 0, 0.7)";
-      ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
-      ctx.arc(fingerX, fingerStartY - radius * 0.7, 9, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-
-      // 손가락 끝 원형 표시
-      ctx.beginPath();
-      ctx.setLineDash([]);
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
-      ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
-      ctx.arc(fingerX, fingerStartY - radius * 0.7, 7, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-    }
 
     // 생명선/감정선/지성선 위치 가이드 (손바닥 내부)
     ctx.beginPath();
@@ -685,19 +657,21 @@ export default function PalmReader() {
         const ctx = capturedCanvas.getContext("2d");
         if (ctx) {
           ctx.drawImage(videoRef.current, 0, 0);
+
+          // 캡처한 이미지 URL을 상태에 저장
+          const imageUrl = capturedCanvas.toDataURL("image/jpeg");
+          setCapturedImageUrl(imageUrl);
+
+          // 비디오 스트림 중단
+          if (videoRef.current?.srcObject) {
+            const stream = videoRef.current.srcObject as MediaStream;
+            const tracks = stream.getTracks();
+            tracks.forEach((track) => track.stop());
+            videoRef.current.srcObject = null;
+            setIsStreamActive(false);
+          }
         }
       }
-
-      // 분석 중에는 비디오 스트림 유지 (중단하지 않음)
-      // 이전 코드: 비디오 스트림 중단 부분 주석 처리
-      /*
-      if (videoRef.current?.srcObject) {
-        const stream = videoRef.current.srcObject as MediaStream;
-        const tracks = stream.getTracks();
-        tracks.forEach((track) => track.stop());
-        setIsStreamActive(false);
-      }
-      */
 
       // 이미지 캡처 및 분석 로직 (1.5초 대기 후 결과 생성)
       await new Promise((resolve) => setTimeout(resolve, 1500));
@@ -807,12 +781,16 @@ export default function PalmReader() {
     setSelectedMode("initial");
     setIsStreamActive(false);
     setAnalysisResult(null);
+    setCapturedImageUrl(null);
   };
 
   // 다시 시작
   const handleReset = useCallback(() => {
     // 분석 결과 초기화
     setAnalysisResult(null);
+
+    // 캡처된 이미지 초기화
+    setCapturedImageUrl(null);
 
     // UI 상태 초기화
     setIsAnalyzing(false);
@@ -1061,23 +1039,33 @@ export default function PalmReader() {
                 className="absolute inset-0 w-full h-full bg-black"
                 style={{ overflow: "hidden" }}
                 onClick={() => {
-                  if (!isStreamActive && !isAnalyzing) {
+                  if (!isStreamActive && !isAnalyzing && !capturedImageUrl) {
                     console.log("비디오 영역 탭 - 카메라 재시작 시도");
                     startCamera();
                   }
                 }}
               >
-                <video
-                  ref={videoRef}
-                  className="absolute inset-0 w-full h-full object-cover z-[10]"
-                  playsInline
-                  muted
-                  autoPlay
-                  style={{
-                    backgroundColor: "black",
-                    opacity: 1,
-                  }}
-                />
+                {capturedImageUrl && analysisResult ? (
+                  // 캡처된 이미지 표시
+                  <img
+                    src={capturedImageUrl}
+                    className="absolute inset-0 w-full h-full object-cover z-[10]"
+                    alt="캡처된 손바닥 이미지"
+                  />
+                ) : (
+                  // 비디오 스트림 표시
+                  <video
+                    ref={videoRef}
+                    className="absolute inset-0 w-full h-full object-cover z-[10]"
+                    playsInline
+                    muted
+                    autoPlay
+                    style={{
+                      backgroundColor: "black",
+                      opacity: 1,
+                    }}
+                  />
+                )}
                 <canvas
                   ref={canvasRef}
                   className="absolute inset-0 w-full h-full object-cover z-[25]"
@@ -1125,9 +1113,10 @@ export default function PalmReader() {
                     onClick={backToModeSelection}
                     variant="outline"
                     size="sm"
-                    className="bg-black/30 text-white border-white/20 hover:bg-black/50 rounded-full w-10 h-10 p-0"
+                    className="bg-black/30 text-white border-white/20 hover:bg-black/50 flex items-center gap-2 px-3"
                   >
                     <ArrowLeft className="h-4 w-4" />
+                    <span>뒤로</span>
                   </Button>
                 </div>
               )}
@@ -1139,9 +1128,10 @@ export default function PalmReader() {
                     variant="outline"
                     size="sm"
                     onClick={handleReset}
-                    className="bg-black/30 text-white border-white/20 hover:bg-black/50 rounded-full w-10 h-10 p-0"
+                    className="bg-black/30 text-white border-white/20 hover:bg-black/50 flex items-center gap-2 px-3"
                   >
                     <RefreshCw className="h-4 w-4" />
+                    <span>다시 촬영</span>
                   </Button>
                 </div>
               )}
