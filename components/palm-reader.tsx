@@ -113,6 +113,9 @@ export default function PalmReader() {
     const ctx = canvasRef.current.getContext("2d");
     if (!ctx) return;
 
+    // 이전 손 감지 상태 저장
+    const prevHandDetected = handDetected;
+
     // 캔버스 초기화
     const videoWidth = videoRef.current.videoWidth || canvasRef.current.width;
     const videoHeight =
@@ -163,18 +166,11 @@ export default function PalmReader() {
     const fingerStartY = centerY - radius;
     const fingerSpacing = radius / 2;
 
-    // 5개 손가락 위치 가이드 라인
+    // 5개 손가락 위치 가이드 라인 - 직선 제거하고 원형만 유지
     for (let i = -2; i <= 2; i++) {
       const fingerX = centerX + i * fingerSpacing;
 
-      // 손가락 라인 (위쪽)
-      ctx.beginPath();
-      ctx.setLineDash([4, 4]);
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
-      ctx.lineWidth = 3;
-      ctx.moveTo(fingerX, fingerStartY);
-      ctx.lineTo(fingerX, fingerStartY - radius * 0.7);
-      ctx.stroke();
+      // 손가락 라인 제거 (직선 없앰)
 
       // 손가락 끝 원형 표시 (그림자 효과)
       ctx.beginPath();
@@ -249,6 +245,19 @@ export default function PalmReader() {
 
       // 현재 프레임에서 손 감지 상태 업데이트
       setHandDetected(skinToneRatio > handDetectionThreshold);
+
+      // 손 감지 상태 변경 시 햅틱 피드백 (감지되었을 때만)
+      if (!prevHandDetected && skinToneRatio > handDetectionThreshold) {
+        // 햅틱 피드백 - 짧게 두 번
+        try {
+          if (window.navigator && window.navigator.vibrate) {
+            console.log("햅틱 피드백 활성화");
+            window.navigator.vibrate([100, 100, 100]);
+          }
+        } catch (err) {
+          console.warn("햅틱 피드백 오류:", err);
+        }
+      }
 
       // 손 감지 상태에 따라 가이드라인 색상 변경
       if (skinToneRatio > handDetectionThreshold) {
@@ -1059,6 +1068,19 @@ export default function PalmReader() {
                     mixBlendMode: "lighten", // 가이드라인이 더 잘 보이도록 혼합 모드 추가
                   }}
                 />
+
+                {/* 안내 문구 - 프리뷰에서만 표시 */}
+                {selectedMode === "camera" &&
+                  !analysisResult &&
+                  !isAnalyzing && (
+                    <div className="absolute top-12 left-0 right-0 z-[35] flex justify-center">
+                      <div className="bg-black/40 backdrop-blur-sm px-4 py-2 rounded-full">
+                        <p className="text-white text-sm font-medium text-center">
+                          왼손 바닥을 카메라에 대고 원에 가깝게 맞추세요
+                        </p>
+                      </div>
+                    </div>
+                  )}
               </div>
 
               <div className="absolute top-4 left-4 z-[40]">
@@ -1073,9 +1095,9 @@ export default function PalmReader() {
                 </Button>
               </div>
 
-              {/* 촬영 버튼 - 항상 표시 */}
+              {/* 촬영 버튼 - 항상 표시 (위치 조정) */}
               {selectedMode === "camera" && !analysisResult && (
-                <div className="absolute bottom-4 left-0 right-0 flex justify-center z-[40]">
+                <div className="absolute bottom-8 left-0 right-0 flex justify-center z-[40]">
                   <Button
                     onClick={() => {
                       console.log("촬영 버튼 클릭됨");
