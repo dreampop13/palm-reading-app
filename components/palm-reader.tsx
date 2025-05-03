@@ -166,8 +166,8 @@ export default function PalmReader() {
     const fingerStartY = centerY - radius;
     const fingerSpacing = radius / 2;
 
-    // 5개 손가락 위치 가이드 라인 - 직선 제거하고 원형만 유지
-    for (let i = -2; i <= 2; i++) {
+    // 4개 손가락 위치 가이드 (맨 왼쪽 삭제)
+    for (let i = -1; i <= 2; i++) {
       const fingerX = centerX + i * fingerSpacing;
 
       // 손가락 라인 제거 (직선 없앰)
@@ -677,7 +677,7 @@ export default function PalmReader() {
 
       toast.info("손금을 분석 중입니다...");
 
-      // 분석용 캔버스에 현재 화면 캡처
+      // 분석용 캔버스에 현재 화면 캡처 - 이 부분은 유지하되 비디오 스트림은 중단하지 않음
       const capturedCanvas = document.createElement("canvas");
       if (videoRef.current && canvasRef.current) {
         capturedCanvas.width = videoRef.current.videoWidth;
@@ -688,13 +688,16 @@ export default function PalmReader() {
         }
       }
 
-      // 분석을 위해 1.5초 간 비디오 정지
+      // 분석 중에는 비디오 스트림 유지 (중단하지 않음)
+      // 이전 코드: 비디오 스트림 중단 부분 주석 처리
+      /*
       if (videoRef.current?.srcObject) {
         const stream = videoRef.current.srcObject as MediaStream;
         const tracks = stream.getTracks();
         tracks.forEach((track) => track.stop());
         setIsStreamActive(false);
       }
+      */
 
       // 이미지 캡처 및 분석 로직 (1.5초 대기 후 결과 생성)
       await new Promise((resolve) => setTimeout(resolve, 1500));
@@ -815,16 +818,31 @@ export default function PalmReader() {
     setIsAnalyzing(false);
     setHandDetected(false);
 
-    // 카메라 컨테이너 배경 초기화
-    if (videoRef.current && videoRef.current.parentElement) {
-      videoRef.current.parentElement.style.backgroundColor = "transparent";
-    }
+    // 비디오 스트림이 이미 실행 중인지 확인
+    const hasActiveStream =
+      videoRef.current &&
+      videoRef.current.srcObject &&
+      (videoRef.current.srcObject as MediaStream).active;
 
-    // 약간의 지연 후 카메라 재시작 (UI 업데이트 후)
-    setTimeout(() => {
-      startCamera();
-    }, 100);
-  }, [startCamera]);
+    // 비디오 스트림이 이미 실행 중이 아닐 경우에만 재시작
+    if (!hasActiveStream) {
+      // 카메라 컨테이너 배경 초기화
+      if (videoRef.current && videoRef.current.parentElement) {
+        videoRef.current.parentElement.style.backgroundColor = "transparent";
+      }
+
+      // 약간의 지연 후 카메라 재시작 (UI 업데이트 후)
+      setTimeout(() => {
+        startCamera();
+      }, 100);
+    } else {
+      // 스트림이 이미 활성화되어 있다면 isStreamActive 상태만 업데이트
+      setIsStreamActive(true);
+
+      // 가이드라인 다시 표시
+      requestAnimationFrame(detectAndCapture);
+    }
+  }, [startCamera, detectAndCapture]);
 
   // App initialization
   useEffect(() => {
@@ -1083,18 +1101,6 @@ export default function PalmReader() {
                   )}
               </div>
 
-              <div className="absolute top-4 left-4 z-[40]">
-                <Button
-                  onClick={backToModeSelection}
-                  variant="outline"
-                  size="sm"
-                  className="bg-black/30 text-white border-white/20 hover:bg-black/50"
-                >
-                  <ArrowLeft className="h-3 w-3 mr-1" />
-                  뒤로
-                </Button>
-              </div>
-
               {/* 촬영 버튼 - 항상 표시 (위치 조정) */}
               {selectedMode === "camera" && !analysisResult && (
                 <div className="absolute bottom-8 left-0 right-0 flex justify-center z-[40]">
@@ -1112,17 +1118,30 @@ export default function PalmReader() {
                 </div>
               )}
 
-              {/* 분석 후 다시하기 버튼 */}
+              {/* 뒤로 버튼 - 우측 하단 - 프리뷰에만 표시 */}
+              {selectedMode === "camera" && !analysisResult && !isAnalyzing && (
+                <div className="absolute bottom-8 right-4 z-[40]">
+                  <Button
+                    onClick={backToModeSelection}
+                    variant="outline"
+                    size="sm"
+                    className="bg-black/30 text-white border-white/20 hover:bg-black/50 rounded-full w-10 h-10 p-0"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
+
+              {/* 분석 후 다시하기 버튼 - 우측 하단에 위치 */}
               {analysisResult && (
-                <div className="absolute bottom-4 right-4 z-[40]">
+                <div className="absolute bottom-8 right-4 z-[40]">
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={handleReset}
-                    className="bg-black/30 text-white border-white/20 hover:bg-black/50"
+                    className="bg-black/30 text-white border-white/20 hover:bg-black/50 rounded-full w-10 h-10 p-0"
                   >
-                    <RefreshCw className="h-3 w-3 mr-1" />
-                    다시 촬영
+                    <RefreshCw className="h-4 w-4" />
                   </Button>
                 </div>
               )}
